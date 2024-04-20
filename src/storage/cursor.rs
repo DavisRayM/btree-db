@@ -41,11 +41,6 @@ impl<'a> Cursor<'a> {
 
     pub fn insert(&mut self, content: &String) -> Result<(), String> {
         let cell = LeafCell::new(self.cell_num, content.as_bytes().to_vec(), false);
-        println!(
-            "Inserting data to {:?}. Cell:\n{:#?}",
-            self.node.node_type(),
-            cell
-        );
         self.node.insert_cell(cell)
     }
 
