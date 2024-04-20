@@ -1,3 +1,4 @@
+use core::panic;
 use std::sync::{Arc, RwLockWriteGuard};
 
 use log::debug;
@@ -8,7 +9,9 @@ use crate::{
         INTERNAL_CELL_SIZE, INTERNAL_KEY_SIZE, INTERNAL_MAX_KEYS, INTERNAL_NUM_KEYS_OFFSET,
         INTERNAL_NUM_KEYS_SIZE, LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE,
         LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE, LEAF_KEY_IDENTIFIER_SIZE,
-        LEAF_KEY_INDENTIFIER_OFFSET, LEAF_NUM_KEYS_OFFSET, LEAF_NUM_KEYS_SIZE, PAGE_SIZE,
+        LEAF_KEY_INDENTIFIER_OFFSET, LEAF_NEXT_SIBLING_POINTER_DEFAULT,
+        LEAF_NEXT_SIBLING_POINTER_OFFSET, LEAF_NEXT_SIBLING_POINTER_SIZE, LEAF_NUM_KEYS_OFFSET,
+        LEAF_NUM_KEYS_SIZE, PAGE_SIZE,
     },
 };
 
@@ -17,7 +20,8 @@ use super::{
     layout::{
         INTERNAL_HEADER_SIZE, INTERNAL_KEY_OFFSET, INTERNAL_KEY_POINTER_OFFSET,
         INTERNAL_KEY_POINTER_SIZE, LEAF_CONTENT_LEN_SIZE, LEAF_HEADER_SIZE, LEAF_KEY_CELL_SIZE,
-        LEAF_KEY_POINTER_OFFSET, LEAF_KEY_POINTER_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
+        LEAF_KEY_POINTER_OFFSET, LEAF_KEY_POINTER_SIZE, PAGE_PARENT_DEFAULT, PAGE_PARENT_OFFSET,
+        PAGE_PARENT_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
     },
     page::{CachedPage, Page, PageType},
 };
@@ -196,6 +200,7 @@ impl Node {
                 .try_into()
                 .expect("failed to read free space header"),
         );
+
         let (start, end) = calculate_offsets!(LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE);
         let mut free_space_end = u64::from_be_bytes(
             handle[start..end]
@@ -241,6 +246,66 @@ impl Node {
 
     pub fn node_type(&self) -> &PageType {
         &self._type
+    }
+
+    pub fn next_sibling(&self) -> Option<u64> {
+        if self._type == PageType::Internal {
+            panic!("internal pages do not support next sibling headers");
+        } else {
+            let page = Arc::clone(&self.page.0);
+            let handle = page.read().expect("failed to retrieve read lock on page");
+
+            let (start, end) = calculate_offsets!(
+                LEAF_NEXT_SIBLING_POINTER_OFFSET,
+                LEAF_NEXT_SIBLING_POINTER_SIZE
+            );
+            let next_sibling = u64::from_be_bytes(
+                handle[start..end]
+                    .try_into()
+                    .expect("failed to read next sibling header"),
+            );
+
+            if next_sibling == LEAF_NEXT_SIBLING_POINTER_DEFAULT {
+                None
+            } else {
+                Some(next_sibling)
+            }
+        }
+    }
+
+    pub fn parent_pointer(&self) -> Option<u64> {
+        let (start, end) = calculate_offsets!(PAGE_PARENT_OFFSET, PAGE_PARENT_SIZE);
+        let page = Arc::clone(&self.page.0);
+        let handle = page.read().expect("failed to retrieve read lock on page");
+
+        let pointer = u64::from_be_bytes(
+            handle[start..end]
+                .try_into()
+                .expect("failed to read parent pointer"),
+        );
+
+        if pointer == PAGE_PARENT_DEFAULT {
+            None
+        } else {
+            Some(pointer)
+        }
+    }
+
+    pub fn set_parent_pointer(&self, pointer: u64) {
+        let (start, end) = calculate_offsets!(PAGE_PARENT_OFFSET, PAGE_PARENT_SIZE);
+        let page = Arc::clone(&self.page.0);
+        let mut handle = page.write().expect("failed to retrieve write lock on page");
+        handle[start..end].clone_from_slice(&pointer.to_be_bytes());
+    }
+
+    pub fn set_next_sibling(&self, pointer: u64) {
+        let (start, end) = calculate_offsets!(
+            LEAF_NEXT_SIBLING_POINTER_OFFSET,
+            LEAF_NEXT_SIBLING_POINTER_SIZE
+        );
+        let page = Arc::clone(&self.page.0);
+        let mut handle = page.write().expect("failed to retrieve write lock on page");
+        handle[start..end].clone_from_slice(&pointer.to_be_bytes());
     }
 
     pub fn num_cells(&self) -> u64 {
