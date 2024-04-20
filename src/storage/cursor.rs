@@ -40,7 +40,18 @@ impl<'a> Cursor<'a> {
     fn advance(&mut self) {
         self.cell_num += 1;
         if self.node.num_cells() <= self.cell_num {
-            self._state = CursorState::AtEnd;
+            if let Some(sibling) = self.node.next_sibling() {
+                self.node = Node::load(
+                    self.table
+                        .get_page(sibling)
+                        .expect("sibling does not exist"),
+                    Vec::with_capacity(0),
+                )
+                .expect("failed to load next sibling");
+                self.cell_num = 0;
+            } else {
+                self._state = CursorState::AtEnd;
+            }
         }
     }
 
