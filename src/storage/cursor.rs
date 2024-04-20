@@ -65,7 +65,7 @@ impl<'a> Cursor<'a> {
         match self.node.node_type() {
             PageType::Leaf => {
                 let cell = LeafCell::new(identifier, content.as_bytes().to_vec(), false);
-                self.node.insert_cell(cell)
+                self.node.insert_cell(cell).map_err(|e| e.to_string())
             }
             PageType::Internal => {
                 debug!("locating leaf node to insert identifier: {}", identifier);

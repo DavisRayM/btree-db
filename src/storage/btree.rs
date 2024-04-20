@@ -1,5 +1,8 @@
 use core::panic;
-use std::sync::{Arc, RwLockWriteGuard};
+use std::{
+    fmt::Display,
+    sync::{Arc, RwLockWriteGuard},
+};
 
 use log::debug;
 
@@ -26,6 +29,34 @@ use super::{
     page::{CachedPage, Page, PageType},
 };
 
+type Result<T> = std::result::Result<T, NodeResult>;
+
+/// Possible result types that can be returned by [Node](Node) operations
+#[derive(Debug, Clone)]
+pub enum NodeResult {
+    /// Returned when a node is full and requires a split action to be performed
+    IsFull,
+    /// Returned when a node has no space for content and requires an overflow page to insert data
+    HasOverflowen(u64, Vec<u8>),
+    /// Returned when trying to read a node with invalid page content
+    InvalidPage { desc: String },
+    /// Returned when trying to insert a duplicate key
+    DuplicateKey,
+}
+
+impl Display for NodeResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Self::IsFull => "node is currently full".to_string(),
+            Self::HasOverflowen(_, _) => "node has overflowen".to_string(),
+            Self::InvalidPage { desc } => format!("invalid page; {desc}"),
+            Self::DuplicateKey => "duplicate key".to_string(),
+        };
+
+        write!(f, "{}", msg)
+    }
+}
+
 // In-memory representation of a page.
 //
 // This structure is used to manipulate page contents in memory
@@ -37,7 +68,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn load(page: CachedPage, overflow_pages: Vec<CachedPage>) -> Result<Self, String> {
+    pub fn load(page: CachedPage, overflow_pages: Vec<CachedPage>) -> Result<Self> {
         let mut obj = Self {
             page,
             overflow_pages,
@@ -51,12 +82,14 @@ impl Node {
         Ok(obj)
     }
 
-    fn read_page_type(&self) -> Result<PageType, String> {
+    fn read_page_type(&self) -> Result<PageType> {
         let (start, end) = calculate_offsets!(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE);
         let page = Arc::clone(&self.page.0);
         let handle = page.read().expect("failed to retrieve read lock on page");
 
-        handle[start..end][0].try_into()
+        handle[start..end][0]
+            .try_into()
+            .map_err(|e| NodeResult::InvalidPage { desc: e })
     }
 
     /// Retrieve the cell position for an Internal node key or Leaf node key
@@ -160,15 +193,18 @@ impl Node {
         &mut self,
         cell: T,
         handle: &mut RwLockWriteGuard<'_, Page>,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         if self.num_cells() > INTERNAL_MAX_KEYS as u64 {
-            return Err("page is full; need to implement split".to_string());
+            return Err(NodeResult::IsFull);
         }
 
         let key = cell.get_key();
-        let bytes: [u8; INTERNAL_CELL_SIZE] = cell.get_content()[..]
-            .try_into()
-            .map_err(|_| "invalid internal cell data".to_string())?;
+        let bytes: [u8; INTERNAL_CELL_SIZE] =
+            cell.get_content()[..]
+                .try_into()
+                .map_err(|_| NodeResult::InvalidPage {
+                    desc: "invalid internal cell data".to_string(),
+                })?;
 
         let pos = self.calculate_cell_position(self.find_cell_num(key));
         debug!("inserting new internal cell at {}; key {}", pos, key);
@@ -192,7 +228,7 @@ impl Node {
         &mut self,
         cell: T,
         handle: &mut RwLockWriteGuard<'_, Page>,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let (start, end) =
             calculate_offsets!(LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE);
         let free_space_start = u64::from_be_bytes(
@@ -216,9 +252,8 @@ impl Node {
         free_space_end -= content_bytes.len() as u64;
 
         if free_space_start + LEAF_KEY_CELL_SIZE as u64 >= free_space_end {
-            return Err(
-                "page is full; need to implement overflow pages and page compaction".to_string(),
-            );
+            // TODO: differentiate between when a leaf node has overflow or has become full
+            return Err(NodeResult::IsFull);
         }
 
         debug!(
@@ -330,9 +365,9 @@ impl Node {
         )
     }
 
-    pub fn insert_cell<T: Cell>(&mut self, cell: T) -> Result<(), String> {
+    pub fn insert_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
         if self.check_key_exists(cell.get_key()) {
-            return Err("duplicate key".to_string());
+            return Err(NodeResult::DuplicateKey);
         }
 
         debug!("inserting new cell");
