@@ -1,10 +1,15 @@
 pub mod btree;
 pub mod cell;
+pub mod cursor;
 pub(crate) mod layout;
 pub(crate) mod page;
+pub mod pager;
 pub mod statement;
+pub mod table;
 
+pub use cursor::Cursor;
 use std::error::Error;
+pub use table::Table;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 

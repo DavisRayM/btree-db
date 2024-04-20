@@ -9,26 +9,27 @@ use super::{
     page::bool_to_u8,
 };
 
+#[derive(Debug, Clone)]
 pub struct LeafCell {
     overflow: bool,
     identifier: u64,
     content: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
 pub struct InternalCell {
     key: u64,
     pointer: u64,
 }
 
 pub trait Cell {
-    type Key;
-    type Content;
+    fn get_key(&self) -> u64;
 
-    fn get_key_bytes(&self) -> Self::Key;
+    fn get_key_bytes(&self) -> Vec<u8>;
 
-    fn get_content(&self) -> Self::Content;
+    fn get_content(&self) -> Vec<u8>;
 
-    fn set_content(&mut self, c: Self::Content);
+    fn set_content(&mut self, c: Vec<u8>);
 }
 
 impl InternalCell {
@@ -71,24 +72,25 @@ impl LeafCell {
 }
 
 impl Cell for InternalCell {
-    type Key = [u8; 8];
-    type Content = [u8; INTERNAL_CELL_SIZE];
-
-    fn get_key_bytes(&self) -> Self::Key {
-        self.key.to_be_bytes()
+    fn get_key(&self) -> u64 {
+        self.key()
     }
 
-    fn get_content(&self) -> Self::Content {
+    fn get_key_bytes(&self) -> Vec<u8> {
+        unimplemented!("probably need to use the key() function")
+    }
+
+    fn get_content(&self) -> Vec<u8> {
         let mut out = [0x00; INTERNAL_CELL_SIZE];
 
         out[0..INTERNAL_KEY_SIZE].clone_from_slice(self.key.to_be_bytes().as_ref());
         out[INTERNAL_KEY_SIZE..INTERNAL_KEY_SIZE + INTERNAL_KEY_POINTER_SIZE]
             .clone_from_slice(self.pointer.to_be_bytes().as_ref());
 
-        out
+        out.to_vec()
     }
 
-    fn set_content(&mut self, c: Self::Content) {
+    fn set_content(&mut self, c: Vec<u8>) {
         self.key = u64::from_be_bytes(
             c[0..INTERNAL_KEY_SIZE]
                 .try_into()
@@ -103,10 +105,11 @@ impl Cell for InternalCell {
 }
 
 impl Cell for LeafCell {
-    type Key = [u8; LEAF_CELL_HAS_OVERFLOW_FLAG_SIZE + LEAF_KEY_IDENTIFIER_SIZE];
-    type Content = Vec<u8>;
+    fn get_key(&self) -> u64 {
+        self.identifier()
+    }
 
-    fn get_key_bytes(&self) -> Self::Key {
+    fn get_key_bytes(&self) -> Vec<u8> {
         let mut out = [0x00; LEAF_CELL_HAS_OVERFLOW_FLAG_SIZE + LEAF_KEY_IDENTIFIER_SIZE];
 
         let (start, end) = calculate_offsets!(
@@ -119,10 +122,10 @@ impl Cell for LeafCell {
             calculate_offsets!(LEAF_KEY_INDENTIFIER_OFFSET, LEAF_KEY_IDENTIFIER_SIZE);
         out[start..end].clone_from_slice(self.identifier.to_be_bytes().as_ref());
 
-        out
+        out.to_vec()
     }
 
-    fn get_content(&self) -> Self::Content {
+    fn get_content(&self) -> Vec<u8> {
         self.content.clone()
     }
 

@@ -17,6 +17,7 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
     let name = cli.name.unwrap_or("db".into());
+    let path = cli.file.unwrap_or("/tmp/default.db".into());
 
-    start_repl(name, None)
+    start_repl(name, path)
 }

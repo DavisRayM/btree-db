@@ -3,21 +3,22 @@ use std::sync::{Arc, RwLock};
 use crate::calculate_offsets;
 
 use super::layout::{
-    PAGE_IS_ROOT_OFFSET, PAGE_IS_ROOT_SIZE, PAGE_MAGIC, PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE,
-    PAGE_PARENT_DEFAULT, PAGE_PARENT_OFFSET, PAGE_PARENT_SIZE, PAGE_SIZE, PAGE_TYPE_OFFSET,
-    PAGE_TYPE_SIZE,
+    LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE, LEAF_FREE_SPACE_START_OFFSET,
+    LEAF_FREE_SPACE_START_SIZE, LEAF_HEADER_SIZE, PAGE_IS_ROOT_OFFSET, PAGE_IS_ROOT_SIZE,
+    PAGE_MAGIC, PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE, PAGE_PARENT_DEFAULT, PAGE_PARENT_OFFSET,
+    PAGE_PARENT_SIZE, PAGE_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
 };
 
 /// On-disk structure for storing and organizing records
 #[derive(Debug, Clone)]
-pub struct Page([u8; PAGE_SIZE]);
+pub struct Page(pub [u8; PAGE_SIZE]);
 
 /// Cached in-memory page
 #[derive(Debug, Clone)]
 pub struct CachedPage(pub Arc<RwLock<Page>>);
 
 impl CachedPage {
-    fn new(page: Page) -> Self {
+    pub fn new(page: Page) -> Self {
         Self(Arc::new(RwLock::new(page)))
     }
 }
@@ -48,6 +49,7 @@ where
 ///
 /// - `Internal`: An internal node within the B+-Tree structure. It acts as an index for the B+-Tree
 /// - `Leaf`: An external node within the B+-Tree structure. These pages store the actual data
+#[derive(Debug, Clone, PartialEq)]
 pub enum PageType {
     Internal,
     Leaf,
@@ -58,6 +60,18 @@ impl Into<u8> for &PageType {
         match self {
             PageType::Leaf => 0xA,
             PageType::Internal => 0xB,
+        }
+    }
+}
+
+impl TryFrom<u8> for PageType {
+    type Error = String;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0xA => Ok(PageType::Leaf),
+            0xB => Ok(PageType::Internal),
+            _ => Err("unknown page type".to_string()),
         }
     }
 }
@@ -88,6 +102,15 @@ impl PageBuilder {
         let (start, end) = calculate_offsets!(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE);
 
         self.inner[start..end].clone_from_slice(&[_type.into()]);
+        if *_type == PageType::Leaf {
+            let (start, end) =
+                calculate_offsets!(LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE);
+            self.inner[start..end].clone_from_slice(&LEAF_HEADER_SIZE.to_be_bytes());
+
+            let (start, end) =
+                calculate_offsets!(LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE);
+            self.inner[start..end].clone_from_slice(&PAGE_SIZE.to_be_bytes());
+        }
         self
     }
 

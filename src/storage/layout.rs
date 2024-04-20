@@ -5,7 +5,7 @@ pub const PAGE_SIZE: usize = 4096;
 
 // Page headers
 pub const PAGE_MAGIC: usize = 0xFEBA;
-pub const PAGE_MAGIC_SIZE: usize = size_of::<u16>();
+pub const PAGE_MAGIC_SIZE: usize = size_of::<usize>();
 pub const PAGE_MAGIC_OFFSET: usize = 0;
 
 pub const PAGE_TYPE_SIZE: usize = size_of::<u8>();
@@ -34,7 +34,9 @@ pub const INTERNAL_HEADER_SIZE: usize =
 
 // Internal node body
 pub const INTERNAL_KEY_SIZE: usize = size_of::<usize>();
+pub const INTERNAL_KEY_OFFSET: usize = 0;
 pub const INTERNAL_KEY_POINTER_SIZE: usize = size_of::<usize>();
+pub const INTERNAL_KEY_POINTER_OFFSET: usize = INTERNAL_KEY_OFFSET + INTERNAL_KEY_SIZE;
 
 pub const INTERNAL_CELL_SIZE: usize = INTERNAL_NUM_KEYS_SIZE + INTERNAL_KEY_POINTER_SIZE;
 
@@ -79,5 +81,9 @@ pub const LEAF_KEY_POINTER_OFFSET: usize = LEAF_KEY_INDENTIFIER_OFFSET + LEAF_KE
 
 pub const LEAF_KEY_CELL_SIZE: usize =
     LEAF_CELL_HAS_OVERFLOW_FLAG_SIZE + LEAF_KEY_IDENTIFIER_SIZE + LEAF_KEY_POINTER_SIZE;
+
+pub const LEAF_CONTENT_LEN_SIZE: usize = size_of::<usize>();
+pub const LEAF_CONTENT_LEN_OFFSET: usize = 0;
+pub const LEAF_CONTENT_START_OFFSET: usize = LEAF_CONTENT_LEN_OFFSET + LEAF_CONTENT_LEN_SIZE;
 
 pub const LEAF_SPACE_FOR_DATA: usize = PAGE_SIZE - LEAF_HEADER_SIZE;
