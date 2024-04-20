@@ -7,7 +7,7 @@ use std::{
 };
 
 fn test_cmd(temp_file: &NamedTempFile) -> Result<std::process::Child, Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("btree-db")?
+    let cmd = Command::cargo_bin("btree-db")?
         .arg("-f")
         .arg(temp_file.path())
         .stdin(Stdio::piped())
