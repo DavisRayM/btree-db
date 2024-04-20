@@ -1,3 +1,5 @@
+use log::debug;
+
 use super::{btree::Node, cell::LeafCell, page::PageType, table::Table};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +43,8 @@ impl<'a> Cursor<'a> {
         self.cell_num += 1;
         if self.node.num_cells() <= self.cell_num {
             if let Some(sibling) = self.node.next_sibling() {
+                debug!("cursor moving to new sibling node: {}", sibling);
+
                 self.node = Node::load(
                     self.table
                         .get_page(sibling)
@@ -64,6 +68,7 @@ impl<'a> Cursor<'a> {
                 self.node.insert_cell(cell)
             }
             PageType::Internal => {
+                debug!("locating leaf node to insert identifier: {}", identifier);
                 todo!()
             }
         }
