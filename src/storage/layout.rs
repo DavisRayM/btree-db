@@ -70,6 +70,7 @@ pub const LEAF_HEADER_SIZE: usize = PAGE_HEADERS_SIZE
     + LEAF_FREE_SPACE_END_SIZE;
 
 // Leaf node body
+pub const LEAF_NEXT_SIBLING_POINTER_DEFAULT: u64 = u64::MAX;
 
 pub const LEAF_CELL_HAS_OVERFLOW_FLAG_SIZE: usize = size_of::<u8>();
 pub const LEAF_CELL_HAS_OVERFLOW_FLAG_OFFSET: usize = 0;
