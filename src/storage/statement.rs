@@ -16,7 +16,6 @@ impl Statement {
                 });
             }
             Self::Insert(_, content) => {
-                println!("inserting data: {}", content);
                 cursor.insert(content).unwrap();
             }
         }
