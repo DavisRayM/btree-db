@@ -15,9 +15,10 @@ impl Statement {
                     println!("{}", s);
                 });
             }
-            Self::Insert(_, content) => {
-                cursor.insert(content).unwrap();
-            }
+            Self::Insert(id, content) => match cursor.insert(*id, content) {
+                Err(e) => println!("error: {e}"),
+                _ => (),
+            },
         }
     }
 }

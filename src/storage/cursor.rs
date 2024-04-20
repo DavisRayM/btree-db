@@ -39,8 +39,9 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    pub fn insert(&mut self, content: &String) -> Result<(), String> {
-        let cell = LeafCell::new(self.cell_num, content.as_bytes().to_vec(), false);
+    /// TODO: This only handles leaf cell inserts; needs to handle internal node key inserts too
+    pub fn insert(&mut self, identifier: u64, content: &String) -> Result<(), String> {
+        let cell = LeafCell::new(identifier, content.as_bytes().to_vec(), false);
         self.node.insert_cell(cell)
     }
 
