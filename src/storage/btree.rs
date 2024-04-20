@@ -178,6 +178,12 @@ impl Node {
         Ok(())
     }
 
+    fn check_key_exists(&self, key: u64) -> bool {
+        let pos = self.calculate_cell_position(self.find_cell_num(key));
+
+        self.get_cell_key(pos) == key
+    }
+
     fn insert_leaf_cell<T: Cell>(
         &mut self,
         cell: T,
@@ -260,6 +266,10 @@ impl Node {
     }
 
     pub fn insert_cell<T: Cell>(&mut self, cell: T) -> Result<(), String> {
+        if self.check_key_exists(cell.get_key()) {
+            return Err("duplicate key".to_string());
+        }
+
         debug!("inserting new cell");
         let num_cells = self.num_cells() + 1;
         let page = Arc::clone(&self.page.0);
