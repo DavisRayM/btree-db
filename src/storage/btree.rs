@@ -18,7 +18,8 @@ use super::{
     layout::{
         INTERNAL_HEADER_SIZE, INTERNAL_KEY_OFFSET, INTERNAL_KEY_POINTER_OFFSET,
         LEAF_CONTENT_LEN_SIZE, LEAF_HEADER_SIZE, LEAF_KEY_CELL_SIZE, LEAF_KEY_POINTER_OFFSET,
-        PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
+        LEAF_OVERFLOW_POINTER_DEFAULT, LEAF_OVERFLOW_POINTER_OFFSET, PAGE_TYPE_OFFSET,
+        PAGE_TYPE_SIZE,
     },
     page::{CachedPage, PageType},
 };
@@ -30,8 +31,10 @@ type Result<T> = std::result::Result<T, NodeResult>;
 pub enum NodeResult {
     /// Returned when a node is full and requires a split action to be performed
     IsFull,
-    /// Returned when a node has no space for content and requires an overflow page to insert data
-    HasOverflowen(u64, Vec<u8>),
+    /// Returned when a node has an overflow.
+    ///
+    /// Returns the remaining content that needs to be written.
+    HasOverflow(Vec<u8>),
     /// Returned when trying to read a node with invalid page content
     InvalidPage { desc: String },
     /// Returned when trying to insert a duplicate key
@@ -42,7 +45,7 @@ impl Display for NodeResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
             Self::IsFull => "node is currently full".to_string(),
-            Self::HasOverflowen(_, _) => "node has overflowen".to_string(),
+            Self::HasOverflow(_) => "node has overflow".to_string(),
             Self::InvalidPage { desc } => format!("invalid page; {desc}"),
             Self::DuplicateKey => "duplicate key".to_string(),
         };
@@ -56,16 +59,16 @@ impl Display for NodeResult {
 // This structure is used to manipulate page contents in memory
 pub struct Node {
     page: CachedPage,
-    overflow_pages: Vec<CachedPage>,
     keys: u64,
     _type: PageType,
 }
 
 impl Node {
-    pub fn load(page: CachedPage, overflow_pages: Vec<CachedPage>) -> Result<Self> {
+    /// Creates a new [Node](Node) wrapper around a [CachedPage](CachedPage).
+    ///
+    pub fn load(page: CachedPage) -> Result<Self> {
         let mut obj = Self {
             page,
-            overflow_pages,
             keys: 0,
             _type: PageType::Leaf,
         };
@@ -82,6 +85,17 @@ impl Node {
 
     pub fn node_type(&self) -> &PageType {
         &self._type
+    }
+
+    pub fn overflow_pointer(&self) -> Option<u64> {
+        if self._type == PageType::Internal {
+            panic!("internal pages do not support overflows");
+        } else {
+            match self.read_u64_data(LEAF_OVERFLOW_POINTER_OFFSET) {
+                LEAF_OVERFLOW_POINTER_DEFAULT => None,
+                v => Some(v),
+            }
+        }
     }
 
     pub fn next_sibling(&self) -> Option<u64> {
@@ -295,8 +309,8 @@ impl Node {
         free_space_end -= content_bytes.len() as u64;
 
         if free_space_start + LEAF_KEY_CELL_SIZE as u64 >= free_space_end {
-            // TODO: differentiate between when a leaf node has overflow or has become full
-            return Err(NodeResult::IsFull);
+            // TODO: Need to figure out how to handle overflows
+            return Err(NodeResult::HasOverflow(Vec::with_capacity(0)));
         }
 
         debug!(

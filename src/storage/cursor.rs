@@ -23,8 +23,7 @@ pub struct Cursor<'a> {
 impl<'a> Cursor<'a> {
     /// Create a new cursor object for a Table
     pub fn new(table: &'a mut Table) -> Self {
-        let node =
-            Node::load(table.root_page(), Vec::with_capacity(0)).expect("failed to load root node");
+        let node = Node::load(table.root_page()).expect("failed to load root node");
 
         let _state = match node.num_cells() {
             0 => CursorState::AtEnd,
@@ -49,7 +48,6 @@ impl<'a> Cursor<'a> {
                     self.table
                         .get_page(sibling)
                         .expect("sibling does not exist"),
-                    Vec::with_capacity(0),
                 )
                 .expect("failed to load next sibling");
                 self.cell_num = 0;
