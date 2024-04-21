@@ -1,6 +1,7 @@
 use core::panic;
 use std::{
     fmt::Display,
+    mem::size_of,
     sync::{Arc, RwLockWriteGuard},
 };
 
@@ -89,23 +90,9 @@ impl Node {
         if self._type == PageType::Internal {
             panic!("internal pages do not support next sibling headers");
         } else {
-            let page = Arc::clone(&self.page.0);
-            let handle = page.read().expect("failed to retrieve read lock on page");
-
-            let (start, end) = calculate_offsets!(
-                LEAF_NEXT_SIBLING_POINTER_OFFSET,
-                LEAF_NEXT_SIBLING_POINTER_SIZE
-            );
-            let next_sibling = u64::from_be_bytes(
-                handle[start..end]
-                    .try_into()
-                    .expect("failed to read next sibling header"),
-            );
-
-            if next_sibling == LEAF_NEXT_SIBLING_POINTER_DEFAULT {
-                None
-            } else {
-                Some(next_sibling)
+            match self.read_u64_data(LEAF_NEXT_SIBLING_POINTER_OFFSET) {
+                LEAF_NEXT_SIBLING_POINTER_DEFAULT => None,
+                v => Some(v),
             }
         }
     }
@@ -121,25 +108,10 @@ impl Node {
     }
 
     pub fn num_cells(&self) -> u64 {
-        let page = Arc::clone(&self.page.0);
-        let handle = page.read().expect("failed to retrieve read lock on page");
-        let start;
-        let end;
-
         match self._type {
-            PageType::Leaf => {
-                (start, end) = calculate_offsets!(LEAF_NUM_KEYS_OFFSET, LEAF_NUM_KEYS_SIZE);
-            }
-            PageType::Internal => {
-                (start, end) = calculate_offsets!(INTERNAL_NUM_KEYS_OFFSET, INTERNAL_NUM_KEYS_SIZE);
-            }
-        };
-
-        u64::from_be_bytes(
-            handle[start..end]
-                .try_into()
-                .expect("failed to read num keys bytes"),
-        )
+            PageType::Leaf => self.read_u64_data(LEAF_NUM_KEYS_OFFSET),
+            PageType::Internal => self.read_u64_data(INTERNAL_NUM_KEYS_OFFSET),
+        }
     }
 
     pub fn insert_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
@@ -172,31 +144,17 @@ impl Node {
 
     pub fn read_cell_bytes(&self, num: u64) -> Vec<u8> {
         let cell_pos = self.calculate_cell_position(num) as usize;
-        let page = Arc::clone(&self.page.0);
-        let handle = page.read().expect("failed to retrieve read lock on page");
-        let start;
-        let end;
 
         match self._type {
-            PageType::Internal => {
-                (start, end) = calculate_offsets!(cell_pos, INTERNAL_CELL_SIZE);
-            }
+            PageType::Internal => self.read_variable_data(cell_pos, INTERNAL_CELL_SIZE),
             PageType::Leaf => {
-                let pointer = self.get_cell_key_pointer(cell_pos as u64) as usize;
-                let content_size_end = pointer + LEAF_CONTENT_LEN_SIZE;
-                let content_size = usize::from_be_bytes(
-                    handle[pointer..content_size_end]
-                        .try_into()
-                        .expect("failed to read content size metadata"),
-                );
+                let mut pointer = self.get_cell_key_pointer(cell_pos as u64) as usize;
+                let content_size = self.read_u64_data(pointer);
+                pointer += LEAF_CONTENT_LEN_SIZE;
 
-                start = content_size_end;
-                end = start + content_size;
+                self.read_variable_data(pointer, content_size as usize)
             }
-        };
-
-        debug!("reading cell at {} - {}", start, end);
-        handle[start..end].to_vec()
+        }
     }
 
     /// Retrieve the cell position for an Internal node key or Leaf node key
@@ -214,49 +172,21 @@ impl Node {
     }
 
     fn get_cell_key(&self, pos: u64) -> u64 {
-        let start;
-        let end;
-        match self._type {
-            PageType::Leaf => {
-                let start_pos = LEAF_KEY_INDENTIFIER_OFFSET + pos as usize;
-                (start, end) = calculate_offsets!(start_pos, LEAF_KEY_IDENTIFIER_SIZE);
-            }
-            PageType::Internal => {
-                let start_pos = INTERNAL_KEY_OFFSET + pos as usize;
-                (start, end) = calculate_offsets!(start_pos, INTERNAL_KEY_SIZE);
-            }
-        }
+        let start_pos = match self._type {
+            PageType::Leaf => LEAF_KEY_INDENTIFIER_OFFSET + pos as usize,
+            PageType::Internal => INTERNAL_KEY_OFFSET + pos as usize,
+        };
 
-        let page = Arc::clone(&self.page.0);
-        let handle = page.read().expect("failed to retrieve read lock on page");
-        u64::from_be_bytes(
-            handle[start..end]
-                .try_into()
-                .expect("failed to read cell key"),
-        )
+        self.read_u64_data(start_pos)
     }
 
     fn get_cell_key_pointer(&self, pos: u64) -> u64 {
-        let start;
-        let end;
-        match self._type {
-            PageType::Leaf => {
-                let start_pos = LEAF_KEY_POINTER_OFFSET + pos as usize;
-                (start, end) = calculate_offsets!(start_pos, LEAF_KEY_POINTER_SIZE);
-            }
-            PageType::Internal => {
-                let start_pos = INTERNAL_KEY_POINTER_OFFSET + pos as usize;
-                (start, end) = calculate_offsets!(start_pos, INTERNAL_KEY_POINTER_SIZE);
-            }
-        }
+        let start_pos = match self._type {
+            PageType::Leaf => LEAF_KEY_POINTER_OFFSET + pos as usize,
+            PageType::Internal => INTERNAL_KEY_POINTER_OFFSET + pos as usize,
+        };
 
-        let page = Arc::clone(&self.page.0);
-        let handle = page.read().expect("failed to retrieve read lock on page");
-        u64::from_be_bytes(
-            handle[start..end]
-                .try_into()
-                .expect("failed to read cell key"),
-        )
+        self.read_u64_data(start_pos)
     }
 
     fn find_cell_num(&self, key: u64) -> u64 {
@@ -336,20 +266,8 @@ impl Node {
         cell: T,
         handle: &mut RwLockWriteGuard<'_, Page>,
     ) -> Result<()> {
-        let (start, end) =
-            calculate_offsets!(LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE);
-        let free_space_start = u64::from_be_bytes(
-            handle[start..end]
-                .try_into()
-                .expect("failed to read free space header"),
-        );
-
-        let (start, end) = calculate_offsets!(LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE);
-        let mut free_space_end = u64::from_be_bytes(
-            handle[start..end]
-                .try_into()
-                .expect("failed to read free space header"),
-        );
+        let free_space_start = self.read_u64_data(LEAF_FREE_SPACE_START_OFFSET);
+        let mut free_space_end = self.read_u64_data(LEAF_FREE_SPACE_END_OFFSET);
 
         let mut content = cell.get_content();
         let mut content_bytes = Vec::new();
@@ -387,12 +305,33 @@ impl Node {
     }
 
     fn read_page_type(&self) -> Result<PageType> {
-        let (start, end) = calculate_offsets!(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE);
+        self.read_variable_data(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE)[0]
+            .try_into()
+            .map_err(|e| NodeResult::InvalidPage {
+                desc: format!("error while reading page type; {}", e),
+            })
+    }
+
+    fn read_u64_data(&self, start: usize) -> u64 {
+        let size = size_of::<usize>();
+        let (start, end) = calculate_offsets!(start, size);
         let page = Arc::clone(&self.page.0);
+        debug!("Acquiring read lock on page");
         let handle = page.read().expect("failed to retrieve read lock on page");
 
-        handle[start..end][0]
-            .try_into()
-            .map_err(|e| NodeResult::InvalidPage { desc: e })
+        u64::from_be_bytes(
+            handle[start..end]
+                .try_into()
+                .expect("failed to read u64 data"),
+        )
+    }
+
+    fn read_variable_data(&self, start: usize, size: usize) -> Vec<u8> {
+        let (start, end) = calculate_offsets!(start, size);
+        let page = Arc::clone(&self.page.0);
+        debug!("Acquiring read lock on page");
+        let handle = page.read().expect("failed to retrieve read lock on page");
+
+        handle[start..end].into()
     }
 }
