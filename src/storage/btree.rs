@@ -1,21 +1,15 @@
 use core::panic;
-use std::{
-    fmt::Display,
-    mem::size_of,
-    sync::{Arc, RwLockWriteGuard},
-};
+use std::{fmt::Display, mem::size_of, sync::Arc};
 
 use log::debug;
 
 use crate::{
     calculate_offsets,
     storage::layout::{
-        INTERNAL_CELL_SIZE, INTERNAL_KEY_SIZE, INTERNAL_MAX_KEYS, INTERNAL_NUM_KEYS_OFFSET,
-        INTERNAL_NUM_KEYS_SIZE, LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE,
-        LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE, LEAF_KEY_IDENTIFIER_SIZE,
-        LEAF_KEY_INDENTIFIER_OFFSET, LEAF_NEXT_SIBLING_POINTER_DEFAULT,
-        LEAF_NEXT_SIBLING_POINTER_OFFSET, LEAF_NEXT_SIBLING_POINTER_SIZE, LEAF_NUM_KEYS_OFFSET,
-        LEAF_NUM_KEYS_SIZE, PAGE_SIZE,
+        INTERNAL_CELL_SIZE, INTERNAL_MAX_KEYS, INTERNAL_NUM_KEYS_OFFSET,
+        LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_START_OFFSET, LEAF_KEY_INDENTIFIER_OFFSET,
+        LEAF_NEXT_SIBLING_POINTER_DEFAULT, LEAF_NEXT_SIBLING_POINTER_OFFSET,
+        LEAF_NEXT_SIBLING_POINTER_SIZE, LEAF_NUM_KEYS_OFFSET, PAGE_SIZE,
     },
 };
 
@@ -23,10 +17,10 @@ use super::{
     cell::Cell,
     layout::{
         INTERNAL_HEADER_SIZE, INTERNAL_KEY_OFFSET, INTERNAL_KEY_POINTER_OFFSET,
-        INTERNAL_KEY_POINTER_SIZE, LEAF_CONTENT_LEN_SIZE, LEAF_HEADER_SIZE, LEAF_KEY_CELL_SIZE,
-        LEAF_KEY_POINTER_OFFSET, LEAF_KEY_POINTER_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
+        LEAF_CONTENT_LEN_SIZE, LEAF_HEADER_SIZE, LEAF_KEY_CELL_SIZE, LEAF_KEY_POINTER_OFFSET,
+        PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
     },
-    page::{CachedPage, Page, PageType},
+    page::{CachedPage, PageType},
 };
 
 type Result<T> = std::result::Result<T, NodeResult>;
@@ -124,24 +118,19 @@ impl Node {
         }
 
         debug!("inserting new cell");
-        let num_cells = self.num_cells() + 1;
-        let page = Arc::clone(&self.page.0);
-        let mut handle = page.write().expect("failed to retrieve write lock on page");
-        let start;
-        let end;
-
-        match self._type {
+        let num_cell_pos = match self._type {
             PageType::Internal => {
-                self.insert_internal_cell(cell, &mut handle)?;
-                (start, end) = calculate_offsets!(INTERNAL_NUM_KEYS_OFFSET, INTERNAL_NUM_KEYS_SIZE);
+                self.insert_internal_cell(cell)?;
+                INTERNAL_NUM_KEYS_OFFSET
             }
             PageType::Leaf => {
-                self.insert_leaf_cell(cell, &mut handle)?;
-                (start, end) = calculate_offsets!(LEAF_NUM_KEYS_OFFSET, LEAF_NUM_KEYS_SIZE);
+                self.insert_leaf_cell(cell)?;
+                LEAF_NUM_KEYS_OFFSET
             }
         };
 
-        handle[start..end].clone_from_slice(&num_cells.to_be_bytes());
+        let num_cells = self.num_cells() + 1;
+        self.write_all_bytes(num_cells.to_be_bytes().to_vec(), num_cell_pos);
 
         Ok(())
     }
@@ -236,11 +225,7 @@ impl Node {
         }
     }
 
-    fn insert_internal_cell<T: Cell>(
-        &mut self,
-        cell: T,
-        handle: &mut RwLockWriteGuard<'_, Page>,
-    ) -> Result<()> {
+    fn insert_internal_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
         if self.num_cells() > INTERNAL_MAX_KEYS as u64 {
             return Err(NodeResult::IsFull);
         }
@@ -253,23 +238,22 @@ impl Node {
                     desc: "invalid internal cell data".to_string(),
                 })?;
 
-        let pos = self.calculate_cell_position(self.find_cell_num(key));
+        let pos = self.calculate_cell_position(self.find_cell_num(key)) as usize;
         debug!("inserting new internal cell at {}; key {}", pos, key);
-        let mut buf = handle.0.to_vec();
-        let mut after_cell = buf.split_off(pos as usize);
+
+        let mut buf = self.read_variable_data(INTERNAL_HEADER_SIZE, pos);
+        let after_cell = self.read_variable_data(pos, PAGE_SIZE);
 
         buf.append(&mut bytes.to_vec());
-        buf.append(&mut after_cell);
+        let after_cell_pos = buf.len() + INTERNAL_HEADER_SIZE;
 
-        handle.0.clone_from_slice(&buf[..PAGE_SIZE]);
+        self.write_all_bytes(buf, INTERNAL_HEADER_SIZE);
+        self.write_all_bytes(after_cell, after_cell_pos);
+
         Ok(())
     }
 
-    fn insert_leaf_cell<T: Cell>(
-        &mut self,
-        cell: T,
-        handle: &mut RwLockWriteGuard<'_, Page>,
-    ) -> Result<()> {
+    fn insert_leaf_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
         let free_space_start = self.read_u64_data(LEAF_FREE_SPACE_START_OFFSET);
         let mut free_space_end = self.read_u64_data(LEAF_FREE_SPACE_END_OFFSET);
 
@@ -295,15 +279,14 @@ impl Node {
         key_bytes.append(&mut free_space_end.to_be_bytes().to_vec());
         let key_end = free_space_start + LEAF_KEY_CELL_SIZE as u64;
 
-        handle[free_space_start as usize..key_end as usize].clone_from_slice(&key_bytes[..]);
-        handle[free_space_end as usize..free_space_end as usize + content_bytes.len()]
-            .clone_from_slice(&content_bytes[..]);
+        self.write_all_bytes(key_bytes, free_space_start as usize);
+        self.write_all_bytes(content_bytes, free_space_end as usize);
 
-        let (start, end) =
-            calculate_offsets!(LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE);
-        handle[start..end].clone_from_slice(&key_end.to_be_bytes());
-        let (start, end) = calculate_offsets!(LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE);
-        handle[start..end].clone_from_slice(&free_space_end.to_be_bytes());
+        self.write_all_bytes(key_end.to_be_bytes().to_vec(), LEAF_FREE_SPACE_START_OFFSET);
+        self.write_all_bytes(
+            free_space_end.to_be_bytes().to_vec(),
+            LEAF_FREE_SPACE_END_OFFSET,
+        );
 
         Ok(())
     }
@@ -334,5 +317,15 @@ impl Node {
         let handle = page.read().expect("failed to retrieve read lock on page");
 
         handle[start..end].into()
+    }
+
+    /// Writes data to the attached page
+    ///
+    fn write_all_bytes(&mut self, bytes: Vec<u8>, start: usize) {
+        let page = Arc::clone(&self.page.0);
+        let mut handle = page.write().expect("failed to retrieve write lock on page");
+
+        let end = bytes.len() + start;
+        handle[start..end].clone_from_slice(&bytes)
     }
 }
