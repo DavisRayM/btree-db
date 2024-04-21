@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::mem::size_of;
 
 /// Size of the page structure on disk
