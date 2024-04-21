@@ -43,25 +43,6 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn advance(&mut self) {
-        self.cell_num += 1;
-        if self.node.num_cells() <= self.cell_num {
-            if let Some(sibling) = self.node.next_sibling() {
-                debug!("cursor moving to new sibling node: {}", sibling);
-
-                self.node = Node::load(
-                    self.table
-                        .get_page(sibling)
-                        .expect("sibling does not exist"),
-                )
-                .expect("failed to load next sibling");
-                self.cell_num = 0;
-            } else {
-                self._state = CursorState::AtEnd;
-            }
-        }
-    }
-
     /// Inserts a new record into the table
     ///
     pub fn insert(&mut self, identifier: u64, content: Vec<u8>) -> Result<(), String> {
@@ -105,5 +86,24 @@ impl<'a> Cursor<'a> {
         }
 
         data
+    }
+
+    fn advance(&mut self) {
+        self.cell_num += 1;
+        if self.node.num_cells() <= self.cell_num {
+            if let Some(sibling) = self.node.next_sibling() {
+                debug!("cursor moving to new sibling node: {}", sibling);
+
+                self.node = Node::load(
+                    self.table
+                        .get_page(sibling)
+                        .expect("sibling does not exist"),
+                )
+                .expect("failed to load next sibling");
+                self.cell_num = 0;
+            } else {
+                self._state = CursorState::AtEnd;
+            }
+        }
     }
 }
