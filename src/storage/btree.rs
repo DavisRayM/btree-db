@@ -199,7 +199,7 @@ impl Node {
                 }
             }
             PageType::Internal => {
-                if self.num_cells() + 1 >= INTERNAL_MAX_KEYS as u64 {
+                if self.num_cells() + 1 > INTERNAL_MAX_KEYS as u64 {
                     return Err(NodeResult::IsFull);
                 }
             }
