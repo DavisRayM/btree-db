@@ -42,6 +42,7 @@ pub const INTERNAL_MAX_KEYS: usize = INTERNAL_SPACE_FOR_CELLS / INTERNAL_CELL_SI
 // Leaf node headers
 pub const LEAF_OVERFLOW_POINTER_SIZE: usize = size_of::<u64>();
 pub const LEAF_OVERFLOW_POINTER_OFFSET: usize = PAGE_HEADERS_SIZE;
+pub const LEAF_OVERFLOW_POINTER_DEFAULT: u64 = u64::MAX;
 
 pub const LEAF_NEXT_SIBLING_POINTER_SIZE: usize = size_of::<u64>();
 pub const LEAF_NEXT_SIBLING_POINTER_OFFSET: usize =

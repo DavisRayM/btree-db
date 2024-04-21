@@ -5,9 +5,10 @@ use crate::calculate_offsets;
 use super::layout::{
     LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE, LEAF_FREE_SPACE_START_OFFSET,
     LEAF_FREE_SPACE_START_SIZE, LEAF_HEADER_SIZE, LEAF_NEXT_SIBLING_POINTER_DEFAULT,
-    LEAF_NEXT_SIBLING_POINTER_OFFSET, LEAF_NEXT_SIBLING_POINTER_SIZE, PAGE_IS_ROOT_OFFSET,
-    PAGE_IS_ROOT_SIZE, PAGE_MAGIC, PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE, PAGE_SIZE, PAGE_TYPE_OFFSET,
-    PAGE_TYPE_SIZE,
+    LEAF_NEXT_SIBLING_POINTER_OFFSET, LEAF_NEXT_SIBLING_POINTER_SIZE,
+    LEAF_OVERFLOW_POINTER_DEFAULT, LEAF_OVERFLOW_POINTER_OFFSET, LEAF_OVERFLOW_POINTER_SIZE,
+    PAGE_IS_ROOT_OFFSET, PAGE_IS_ROOT_SIZE, PAGE_MAGIC, PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE,
+    PAGE_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
 };
 
 /// On-disk structure for storing and organizing records
@@ -80,6 +81,7 @@ impl TryFrom<u8> for PageType {
 /// Builder struct for a page.
 pub struct PageBuilder {
     inner: [u8; PAGE_SIZE],
+    _type: PageType,
 }
 
 impl PageBuilder {
@@ -103,22 +105,7 @@ impl PageBuilder {
         let (start, end) = calculate_offsets!(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE);
 
         self.inner[start..end].clone_from_slice(&[_type.into()]);
-        if *_type == PageType::Leaf {
-            let (start, end) =
-                calculate_offsets!(LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE);
-            self.inner[start..end].clone_from_slice(&LEAF_HEADER_SIZE.to_be_bytes());
-
-            let (start, end) =
-                calculate_offsets!(LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE);
-            self.inner[start..end].clone_from_slice(&PAGE_SIZE.to_be_bytes());
-
-            let (start, end) = calculate_offsets!(
-                LEAF_NEXT_SIBLING_POINTER_OFFSET,
-                LEAF_NEXT_SIBLING_POINTER_SIZE
-            );
-            self.inner[start..end]
-                .clone_from_slice(&LEAF_NEXT_SIBLING_POINTER_DEFAULT.to_be_bytes());
-        }
+        self._type = _type.clone();
         self
     }
 
@@ -133,6 +120,27 @@ impl PageBuilder {
         let (start, end) = calculate_offsets!(PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE);
         self.inner[start..end].clone_from_slice(PAGE_MAGIC.to_be_bytes().as_ref());
 
+        if self._type == PageType::Leaf {
+            let (start, end) =
+                calculate_offsets!(LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE);
+            self.inner[start..end].clone_from_slice(&LEAF_HEADER_SIZE.to_be_bytes());
+
+            let (start, end) =
+                calculate_offsets!(LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE);
+            self.inner[start..end].clone_from_slice(&PAGE_SIZE.to_be_bytes());
+
+            let (start, end) = calculate_offsets!(
+                LEAF_NEXT_SIBLING_POINTER_OFFSET,
+                LEAF_NEXT_SIBLING_POINTER_SIZE
+            );
+            self.inner[start..end]
+                .clone_from_slice(&LEAF_NEXT_SIBLING_POINTER_DEFAULT.to_be_bytes());
+
+            let (start, end) =
+                calculate_offsets!(LEAF_OVERFLOW_POINTER_OFFSET, LEAF_OVERFLOW_POINTER_SIZE);
+            self.inner[start..end].clone_from_slice(&LEAF_OVERFLOW_POINTER_DEFAULT.to_be_bytes());
+        }
+
         Page(self.inner)
     }
 }
@@ -141,6 +149,7 @@ impl Default for PageBuilder {
     fn default() -> Self {
         let builder = PageBuilder {
             inner: [0x0; PAGE_SIZE],
+            _type: PageType::Leaf,
         }
         .kind(&PageType::Internal)
         .is_root(false);
