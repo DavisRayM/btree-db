@@ -30,7 +30,7 @@ type Result<T> = std::result::Result<T, NodeResult>;
 #[derive(Debug, Clone)]
 pub enum NodeResult {
     /// Returned when a node is full and requires a split action to be performed
-    IsFull,
+    IsFull(u64),
     /// Returned when a node has an overflow.
     ///
     /// Returns the remaining content that needs to be written.
@@ -44,7 +44,7 @@ pub enum NodeResult {
 impl Display for NodeResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
-            Self::IsFull => "node is currently full".to_string(),
+            Self::IsFull(_) => "node is currently full".to_string(),
             Self::HasOverflow(_) => "node has overflow".to_string(),
             Self::InvalidPage { desc } => format!("invalid page; {desc}"),
             Self::DuplicateKey => "duplicate key".to_string(),
@@ -81,6 +81,11 @@ impl Node {
         obj.keys = obj.num_cells();
 
         Ok(obj)
+    }
+
+    pub fn node_high_key(&self) -> u64 {
+        let cell_num = self.num_cells() - 1;
+        self.get_cell_key(self.calculate_cell_position(cell_num))
     }
 
     pub fn node_type(&self) -> &PageType {
@@ -131,7 +136,7 @@ impl Node {
             return Err(NodeResult::DuplicateKey);
         }
 
-        self.check_has_space()?;
+        self.check_has_space(cell.get_key())?;
 
         debug!("inserting new cell");
         let num_cell_pos = match self._type {
@@ -187,20 +192,24 @@ impl Node {
     /// - Leaf nodes: are checked to ensure the node can store one more key entry and have left
     /// over space; If only one key can be stored without it's data or part of it's data it has
     /// filled up
-    fn check_has_space(&self) -> Result<()> {
+    fn check_has_space(&self, key: u64) -> Result<()> {
+        let cell_num = self.find_cell_num(key);
+
         match self._type {
             PageType::Leaf => {
                 let free_space = self.read_u64_data(LEAF_FREE_SPACE_END_OFFSET)
                     - self.read_u64_data(LEAF_FREE_SPACE_START_OFFSET);
 
                 match free_space - LEAF_KEY_CELL_SIZE as u64 {
-                    v if v <= LEAF_KEY_CELL_SIZE as u64 => return Err(NodeResult::IsFull),
+                    v if v <= LEAF_KEY_CELL_SIZE as u64 => {
+                        return Err(NodeResult::IsFull(cell_num))
+                    }
                     _ => (),
                 }
             }
             PageType::Internal => {
                 if self.num_cells() + 1 > INTERNAL_MAX_KEYS as u64 {
-                    return Err(NodeResult::IsFull);
+                    return Err(NodeResult::IsFull(cell_num));
                 }
             }
         };
@@ -270,10 +279,6 @@ impl Node {
     }
 
     fn insert_internal_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
-        if self.num_cells() > INTERNAL_MAX_KEYS as u64 {
-            return Err(NodeResult::IsFull);
-        }
-
         let key = cell.get_key();
         let bytes: [u8; INTERNAL_CELL_SIZE] =
             cell.get_content()[..]

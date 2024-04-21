@@ -1,4 +1,7 @@
-use super::{page::CachedPage, pager::Pager};
+use super::{
+    page::{CachedPage, PageType},
+    pager::Pager,
+};
 use std::path::PathBuf;
 
 /// Table is a wrapper around B+-Trees
@@ -19,6 +22,10 @@ impl Table {
             root: pager.root_page(),
             pager,
         }
+    }
+
+    pub fn create_page(&mut self, kind: &PageType) -> CachedPage {
+        self.pager.new_page(kind.clone(), false)
     }
 
     /// Retrieves a particular page in the table

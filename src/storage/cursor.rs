@@ -48,7 +48,7 @@ impl<'a> Cursor<'a> {
     pub fn insert(&mut self, identifier: u64, content: Vec<u8>) -> Result<(), String> {
         let result = match self.node.node_type() {
             PageType::Leaf => {
-                let cell = LeafCell::new(identifier, content, false);
+                let cell = LeafCell::new(identifier, content.clone(), false);
                 self.node.insert_cell(cell)
             }
             PageType::Internal => {
@@ -64,8 +64,9 @@ impl<'a> Cursor<'a> {
 
         match result {
             Ok(_) => Ok(()),
-            Err(NodeResult::IsFull) => {
-                todo!()
+            Err(NodeResult::IsFull(pivot)) => {
+                self.split(pivot)?;
+                self.insert(identifier, content)
             }
             Err(e) => Err(e.to_string()),
         }
@@ -105,5 +106,39 @@ impl<'a> Cursor<'a> {
                 self._state = CursorState::AtEnd;
             }
         }
+    }
+
+    fn split(&mut self, pivot: u64) -> Result<(), String> {
+        let mut new_node = Node::load(self.table.create_page(self.node.node_type()))
+            .map_err(|e| format!("failed to split node: {}", e.to_string()))?;
+        let old_max = self.node.node_high_key();
+        let num_cells = self.node.num_cells();
+
+        let right_split = (num_cells + 1) / 2;
+        let left_split = (num_cells + 1) - right_split;
+
+        match self.node.node_type() {
+            PageType::Leaf => {
+                let old_sibling = self.node.next_sibling();
+                let mut destination_node: &mut Node;
+
+                for i in (0..num_cells).rev() {
+                    if i >= left_split {
+                        destination_node = &mut new_node;
+                    } else {
+                        destination_node = &mut self.node;
+                    }
+
+                    let index_in_node = i % left_split;
+
+                    if i > pivot {}
+                }
+            }
+            PageType::Internal => {
+                todo!()
+            }
+        };
+
+        Ok(())
     }
 }
