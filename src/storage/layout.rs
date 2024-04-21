@@ -14,12 +14,7 @@ pub const PAGE_TYPE_OFFSET: usize = PAGE_MAGIC_OFFSET + PAGE_MAGIC_SIZE;
 pub const PAGE_IS_ROOT_SIZE: usize = size_of::<u8>();
 pub const PAGE_IS_ROOT_OFFSET: usize = PAGE_TYPE_OFFSET + PAGE_TYPE_SIZE;
 
-pub const PAGE_PARENT_SIZE: usize = size_of::<u64>();
-pub const PAGE_PARENT_DEFAULT: u64 = u64::MAX;
-pub const PAGE_PARENT_OFFSET: usize = PAGE_IS_ROOT_OFFSET + PAGE_IS_ROOT_SIZE;
-
-pub const PAGE_HEADERS_SIZE: usize =
-    PAGE_MAGIC_SIZE + PAGE_TYPE_SIZE + PAGE_IS_ROOT_SIZE + PAGE_PARENT_SIZE;
+pub const PAGE_HEADERS_SIZE: usize = PAGE_MAGIC_SIZE + PAGE_TYPE_SIZE + PAGE_IS_ROOT_SIZE;
 
 // Internal node headers
 pub const INTERNAL_NUM_KEYS_SIZE: usize = size_of::<u64>();

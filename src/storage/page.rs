@@ -6,8 +6,8 @@ use super::layout::{
     LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_END_SIZE, LEAF_FREE_SPACE_START_OFFSET,
     LEAF_FREE_SPACE_START_SIZE, LEAF_HEADER_SIZE, LEAF_NEXT_SIBLING_POINTER_DEFAULT,
     LEAF_NEXT_SIBLING_POINTER_OFFSET, LEAF_NEXT_SIBLING_POINTER_SIZE, PAGE_IS_ROOT_OFFSET,
-    PAGE_IS_ROOT_SIZE, PAGE_MAGIC, PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE, PAGE_PARENT_DEFAULT,
-    PAGE_PARENT_OFFSET, PAGE_PARENT_SIZE, PAGE_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
+    PAGE_IS_ROOT_SIZE, PAGE_MAGIC, PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE, PAGE_SIZE, PAGE_TYPE_OFFSET,
+    PAGE_TYPE_SIZE,
 };
 
 /// On-disk structure for storing and organizing records
@@ -129,13 +129,6 @@ impl PageBuilder {
         self
     }
 
-    pub fn parent(mut self, pointer: u64) -> Self {
-        let (start, end) = calculate_offsets!(PAGE_PARENT_OFFSET, PAGE_PARENT_SIZE);
-
-        self.inner[start..end].clone_from_slice(pointer.to_be_bytes().as_ref());
-        self
-    }
-
     pub fn build(mut self) -> Page {
         let (start, end) = calculate_offsets!(PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE);
         self.inner[start..end].clone_from_slice(PAGE_MAGIC.to_be_bytes().as_ref());
@@ -150,7 +143,6 @@ impl Default for PageBuilder {
             inner: [0x0; PAGE_SIZE],
         }
         .kind(&PageType::Internal)
-        .parent(PAGE_PARENT_DEFAULT)
         .is_root(false);
 
         builder

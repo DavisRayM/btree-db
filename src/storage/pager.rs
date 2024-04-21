@@ -39,7 +39,7 @@ impl Pager {
         };
 
         if num_pages == 0 {
-            obj.new_page(PageType::Leaf, true, None);
+            obj.new_page(PageType::Leaf, true);
         }
 
         obj
@@ -78,12 +78,8 @@ impl Pager {
         self.root_page
     }
 
-    pub fn new_page(&mut self, kind: PageType, is_root: bool, parent: Option<u64>) -> CachedPage {
-        let mut builder = PageBuilder::default().kind(&kind).is_root(is_root);
-
-        if let Some(p) = parent {
-            builder = builder.parent(p);
-        }
+    pub fn new_page(&mut self, kind: PageType, is_root: bool) -> CachedPage {
+        let builder = PageBuilder::default().kind(&kind).is_root(is_root);
 
         let num = self.num_pages;
         self.num_pages += 1;

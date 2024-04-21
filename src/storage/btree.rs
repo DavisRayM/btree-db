@@ -23,8 +23,7 @@ use super::{
     layout::{
         INTERNAL_HEADER_SIZE, INTERNAL_KEY_OFFSET, INTERNAL_KEY_POINTER_OFFSET,
         INTERNAL_KEY_POINTER_SIZE, LEAF_CONTENT_LEN_SIZE, LEAF_HEADER_SIZE, LEAF_KEY_CELL_SIZE,
-        LEAF_KEY_POINTER_OFFSET, LEAF_KEY_POINTER_SIZE, PAGE_PARENT_DEFAULT, PAGE_PARENT_OFFSET,
-        PAGE_PARENT_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
+        LEAF_KEY_POINTER_OFFSET, LEAF_KEY_POINTER_SIZE, PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE,
     },
     page::{CachedPage, Page, PageType},
 };
@@ -306,31 +305,6 @@ impl Node {
                 Some(next_sibling)
             }
         }
-    }
-
-    pub fn parent_pointer(&self) -> Option<u64> {
-        let (start, end) = calculate_offsets!(PAGE_PARENT_OFFSET, PAGE_PARENT_SIZE);
-        let page = Arc::clone(&self.page.0);
-        let handle = page.read().expect("failed to retrieve read lock on page");
-
-        let pointer = u64::from_be_bytes(
-            handle[start..end]
-                .try_into()
-                .expect("failed to read parent pointer"),
-        );
-
-        if pointer == PAGE_PARENT_DEFAULT {
-            None
-        } else {
-            Some(pointer)
-        }
-    }
-
-    pub fn set_parent_pointer(&self, pointer: u64) {
-        let (start, end) = calculate_offsets!(PAGE_PARENT_OFFSET, PAGE_PARENT_SIZE);
-        let page = Arc::clone(&self.page.0);
-        let mut handle = page.write().expect("failed to retrieve write lock on page");
-        handle[start..end].clone_from_slice(&pointer.to_be_bytes());
     }
 
     pub fn set_next_sibling(&self, pointer: u64) {

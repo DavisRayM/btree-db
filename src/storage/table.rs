@@ -1,4 +1,4 @@
-use super::{cell::LeafCell, page::CachedPage, pager::Pager};
+use super::{page::CachedPage, pager::Pager};
 use std::path::PathBuf;
 
 /// Table is a wrapper around B+-Trees
