@@ -97,3 +97,33 @@ fn duplicate_keys_rejected() -> Result<()> {
     file.close()?;
     Ok(())
 }
+
+#[test]
+fn multi_level_trees_support() -> Result<()> {
+    let file = assert_fs::NamedTempFile::new("temp.db")?;
+    file.touch()?;
+    let mut cmd = test_cmd(&file)?;
+
+    for i in 1..140 {
+        cmd.stdin
+            .as_mut()
+            .unwrap()
+            .write_all(format!("insert {i} {i}name\n").as_bytes())?;
+    }
+
+    cmd.stdin.as_mut().unwrap().write_all(b"select\n")?;
+    cmd.stdin.as_mut().unwrap().write_all(b".exit\n")?;
+
+    let output = cmd.wait_with_output()?;
+    output.clone().assert().success();
+
+    for i in 1..140 {
+        output
+            .clone()
+            .assert()
+            .stdout(predicate::str::contains(format!("{i}name")));
+    }
+
+    file.close()?;
+    Ok(())
+}
