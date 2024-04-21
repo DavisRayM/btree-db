@@ -19,7 +19,7 @@ pub struct LeafCell {
 #[derive(Debug, Clone)]
 pub struct InternalCell {
     key: u64,
-    pointer: u64,
+    pointer: [u8; 8],
 }
 
 pub trait Cell {
@@ -33,7 +33,7 @@ pub trait Cell {
 }
 
 impl InternalCell {
-    pub fn new(key: u64, pointer: u64) -> Self {
+    pub fn new(key: u64, pointer: [u8; 8]) -> Self {
         Self { key, pointer }
     }
 
@@ -42,7 +42,7 @@ impl InternalCell {
     }
 
     pub fn pointer(&self) -> u64 {
-        self.pointer
+        u64::from_be_bytes(self.pointer)
     }
 }
 
@@ -85,7 +85,7 @@ impl Cell for InternalCell {
 
         out[0..INTERNAL_KEY_SIZE].clone_from_slice(self.key.to_be_bytes().as_ref());
         out[INTERNAL_KEY_SIZE..INTERNAL_KEY_SIZE + INTERNAL_KEY_POINTER_SIZE]
-            .clone_from_slice(self.pointer.to_be_bytes().as_ref());
+            .clone_from_slice(self.pointer.as_ref());
 
         out.to_vec()
     }
@@ -96,11 +96,9 @@ impl Cell for InternalCell {
                 .try_into()
                 .expect("failed to read internal cell key data"),
         );
-        self.pointer = u64::from_be_bytes(
-            c[INTERNAL_KEY_SIZE..INTERNAL_KEY_SIZE + INTERNAL_KEY_POINTER_SIZE]
-                .try_into()
-                .expect("failed to read internal cell key pointer data"),
-        );
+        self.pointer = c[INTERNAL_KEY_SIZE..INTERNAL_KEY_SIZE + INTERNAL_KEY_POINTER_SIZE]
+            .try_into()
+            .expect("failed to read internal cell key pointer data");
     }
 }
 
@@ -138,7 +136,7 @@ impl Default for InternalCell {
     fn default() -> Self {
         Self {
             key: u64::MAX,
-            pointer: u64::MAX,
+            pointer: u64::MAX.to_be_bytes(),
         }
     }
 }

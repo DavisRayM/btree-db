@@ -15,7 +15,7 @@ impl Statement {
                     println!("{}", s);
                 });
             }
-            Self::Insert(id, content) => match cursor.insert(*id, content) {
+            Self::Insert(id, content) => match cursor.insert(*id, content.as_bytes().to_vec()) {
                 Err(e) => println!("error: {e}"),
                 _ => (),
             },

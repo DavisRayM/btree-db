@@ -1,6 +1,11 @@
 use log::debug;
 
-use super::{btree::Node, cell::LeafCell, page::PageType, table::Table};
+use super::{
+    btree::{Node, NodeResult},
+    cell::{Cell, InternalCell, LeafCell},
+    page::PageType,
+    table::Table,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorState {
@@ -59,16 +64,29 @@ impl<'a> Cursor<'a> {
 
     /// Inserts a new record into the table
     ///
-    pub fn insert(&mut self, identifier: u64, content: &String) -> Result<(), String> {
-        match self.node.node_type() {
+    pub fn insert(&mut self, identifier: u64, content: Vec<u8>) -> Result<(), String> {
+        let result = match self.node.node_type() {
             PageType::Leaf => {
-                let cell = LeafCell::new(identifier, content.as_bytes().to_vec(), false);
-                self.node.insert_cell(cell).map_err(|e| e.to_string())
+                let cell = LeafCell::new(identifier, content, false);
+                self.node.insert_cell(cell)
             }
             PageType::Internal => {
-                debug!("locating leaf node to insert identifier: {}", identifier);
+                let cell = InternalCell::new(
+                    identifier,
+                    content[..8]
+                        .try_into()
+                        .map_err(|e| format!("invalid internal key pointer content: {}", e))?,
+                );
+                self.node.insert_cell(cell)
+            }
+        };
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(NodeResult::IsFull) => {
                 todo!()
             }
+            Err(e) => Err(e.to_string()),
         }
     }
 
