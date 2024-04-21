@@ -81,14 +81,122 @@ impl Node {
         Ok(obj)
     }
 
-    fn read_page_type(&self) -> Result<PageType> {
-        let (start, end) = calculate_offsets!(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE);
+    pub fn node_type(&self) -> &PageType {
+        &self._type
+    }
+
+    pub fn next_sibling(&self) -> Option<u64> {
+        if self._type == PageType::Internal {
+            panic!("internal pages do not support next sibling headers");
+        } else {
+            let page = Arc::clone(&self.page.0);
+            let handle = page.read().expect("failed to retrieve read lock on page");
+
+            let (start, end) = calculate_offsets!(
+                LEAF_NEXT_SIBLING_POINTER_OFFSET,
+                LEAF_NEXT_SIBLING_POINTER_SIZE
+            );
+            let next_sibling = u64::from_be_bytes(
+                handle[start..end]
+                    .try_into()
+                    .expect("failed to read next sibling header"),
+            );
+
+            if next_sibling == LEAF_NEXT_SIBLING_POINTER_DEFAULT {
+                None
+            } else {
+                Some(next_sibling)
+            }
+        }
+    }
+
+    pub fn set_next_sibling(&self, pointer: u64) {
+        let (start, end) = calculate_offsets!(
+            LEAF_NEXT_SIBLING_POINTER_OFFSET,
+            LEAF_NEXT_SIBLING_POINTER_SIZE
+        );
+        let page = Arc::clone(&self.page.0);
+        let mut handle = page.write().expect("failed to retrieve write lock on page");
+        handle[start..end].clone_from_slice(&pointer.to_be_bytes());
+    }
+
+    pub fn num_cells(&self) -> u64 {
         let page = Arc::clone(&self.page.0);
         let handle = page.read().expect("failed to retrieve read lock on page");
+        let start;
+        let end;
 
-        handle[start..end][0]
-            .try_into()
-            .map_err(|e| NodeResult::InvalidPage { desc: e })
+        match self._type {
+            PageType::Leaf => {
+                (start, end) = calculate_offsets!(LEAF_NUM_KEYS_OFFSET, LEAF_NUM_KEYS_SIZE);
+            }
+            PageType::Internal => {
+                (start, end) = calculate_offsets!(INTERNAL_NUM_KEYS_OFFSET, INTERNAL_NUM_KEYS_SIZE);
+            }
+        };
+
+        u64::from_be_bytes(
+            handle[start..end]
+                .try_into()
+                .expect("failed to read num keys bytes"),
+        )
+    }
+
+    pub fn insert_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
+        if self.check_key_exists(cell.get_key()) {
+            return Err(NodeResult::DuplicateKey);
+        }
+
+        debug!("inserting new cell");
+        let num_cells = self.num_cells() + 1;
+        let page = Arc::clone(&self.page.0);
+        let mut handle = page.write().expect("failed to retrieve write lock on page");
+        let start;
+        let end;
+
+        match self._type {
+            PageType::Internal => {
+                self.insert_internal_cell(cell, &mut handle)?;
+                (start, end) = calculate_offsets!(INTERNAL_NUM_KEYS_OFFSET, INTERNAL_NUM_KEYS_SIZE);
+            }
+            PageType::Leaf => {
+                self.insert_leaf_cell(cell, &mut handle)?;
+                (start, end) = calculate_offsets!(LEAF_NUM_KEYS_OFFSET, LEAF_NUM_KEYS_SIZE);
+            }
+        };
+
+        handle[start..end].clone_from_slice(&num_cells.to_be_bytes());
+
+        Ok(())
+    }
+
+    pub fn read_cell_bytes(&self, num: u64) -> Vec<u8> {
+        let cell_pos = self.calculate_cell_position(num) as usize;
+        let page = Arc::clone(&self.page.0);
+        let handle = page.read().expect("failed to retrieve read lock on page");
+        let start;
+        let end;
+
+        match self._type {
+            PageType::Internal => {
+                (start, end) = calculate_offsets!(cell_pos, INTERNAL_CELL_SIZE);
+            }
+            PageType::Leaf => {
+                let pointer = self.get_cell_key_pointer(cell_pos as u64) as usize;
+                let content_size_end = pointer + LEAF_CONTENT_LEN_SIZE;
+                let content_size = usize::from_be_bytes(
+                    handle[pointer..content_size_end]
+                        .try_into()
+                        .expect("failed to read content size metadata"),
+                );
+
+                start = content_size_end;
+                end = start + content_size;
+            }
+        };
+
+        debug!("reading cell at {} - {}", start, end);
+        handle[start..end].to_vec()
     }
 
     /// Retrieve the cell position for an Internal node key or Leaf node key
@@ -97,6 +205,12 @@ impl Node {
             PageType::Leaf => LEAF_HEADER_SIZE as u64 + (num * LEAF_KEY_CELL_SIZE as u64),
             PageType::Internal => INTERNAL_HEADER_SIZE as u64 + (num * INTERNAL_CELL_SIZE as u64),
         }
+    }
+
+    fn check_key_exists(&self, key: u64) -> bool {
+        let pos = self.calculate_cell_position(self.find_cell_num(key));
+
+        self.get_cell_key(pos) == key
     }
 
     fn get_cell_key(&self, pos: u64) -> u64 {
@@ -217,12 +331,6 @@ impl Node {
         Ok(())
     }
 
-    fn check_key_exists(&self, key: u64) -> bool {
-        let pos = self.calculate_cell_position(self.find_cell_num(key));
-
-        self.get_cell_key(pos) == key
-    }
-
     fn insert_leaf_cell<T: Cell>(
         &mut self,
         cell: T,
@@ -278,121 +386,13 @@ impl Node {
         Ok(())
     }
 
-    pub fn node_type(&self) -> &PageType {
-        &self._type
-    }
-
-    pub fn next_sibling(&self) -> Option<u64> {
-        if self._type == PageType::Internal {
-            panic!("internal pages do not support next sibling headers");
-        } else {
-            let page = Arc::clone(&self.page.0);
-            let handle = page.read().expect("failed to retrieve read lock on page");
-
-            let (start, end) = calculate_offsets!(
-                LEAF_NEXT_SIBLING_POINTER_OFFSET,
-                LEAF_NEXT_SIBLING_POINTER_SIZE
-            );
-            let next_sibling = u64::from_be_bytes(
-                handle[start..end]
-                    .try_into()
-                    .expect("failed to read next sibling header"),
-            );
-
-            if next_sibling == LEAF_NEXT_SIBLING_POINTER_DEFAULT {
-                None
-            } else {
-                Some(next_sibling)
-            }
-        }
-    }
-
-    pub fn set_next_sibling(&self, pointer: u64) {
-        let (start, end) = calculate_offsets!(
-            LEAF_NEXT_SIBLING_POINTER_OFFSET,
-            LEAF_NEXT_SIBLING_POINTER_SIZE
-        );
-        let page = Arc::clone(&self.page.0);
-        let mut handle = page.write().expect("failed to retrieve write lock on page");
-        handle[start..end].clone_from_slice(&pointer.to_be_bytes());
-    }
-
-    pub fn num_cells(&self) -> u64 {
+    fn read_page_type(&self) -> Result<PageType> {
+        let (start, end) = calculate_offsets!(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE);
         let page = Arc::clone(&self.page.0);
         let handle = page.read().expect("failed to retrieve read lock on page");
-        let start;
-        let end;
 
-        match self._type {
-            PageType::Leaf => {
-                (start, end) = calculate_offsets!(LEAF_NUM_KEYS_OFFSET, LEAF_NUM_KEYS_SIZE);
-            }
-            PageType::Internal => {
-                (start, end) = calculate_offsets!(INTERNAL_NUM_KEYS_OFFSET, INTERNAL_NUM_KEYS_SIZE);
-            }
-        };
-
-        u64::from_be_bytes(
-            handle[start..end]
-                .try_into()
-                .expect("failed to read num keys bytes"),
-        )
-    }
-
-    pub fn insert_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
-        if self.check_key_exists(cell.get_key()) {
-            return Err(NodeResult::DuplicateKey);
-        }
-
-        debug!("inserting new cell");
-        let num_cells = self.num_cells() + 1;
-        let page = Arc::clone(&self.page.0);
-        let mut handle = page.write().expect("failed to retrieve write lock on page");
-        let start;
-        let end;
-
-        match self._type {
-            PageType::Internal => {
-                self.insert_internal_cell(cell, &mut handle)?;
-                (start, end) = calculate_offsets!(INTERNAL_NUM_KEYS_OFFSET, INTERNAL_NUM_KEYS_SIZE);
-            }
-            PageType::Leaf => {
-                self.insert_leaf_cell(cell, &mut handle)?;
-                (start, end) = calculate_offsets!(LEAF_NUM_KEYS_OFFSET, LEAF_NUM_KEYS_SIZE);
-            }
-        };
-
-        handle[start..end].clone_from_slice(&num_cells.to_be_bytes());
-
-        Ok(())
-    }
-
-    pub fn read_cell_bytes(&self, num: u64) -> Vec<u8> {
-        let cell_pos = self.calculate_cell_position(num) as usize;
-        let page = Arc::clone(&self.page.0);
-        let handle = page.read().expect("failed to retrieve read lock on page");
-        let start;
-        let end;
-
-        match self._type {
-            PageType::Internal => {
-                (start, end) = calculate_offsets!(cell_pos, INTERNAL_CELL_SIZE);
-            }
-            PageType::Leaf => {
-                let pointer = self.get_cell_key_pointer(cell_pos as u64) as usize;
-                let content_size_end = pointer + LEAF_CONTENT_LEN_SIZE;
-                let content_size = usize::from_be_bytes(
-                    handle[pointer..content_size_end]
-                        .try_into()
-                        .expect("failed to read content size metadata"),
-                );
-
-                start = content_size_end;
-                end = start + content_size;
-            }
-        };
-
-        debug!("reading cell at {} - {}", start, end);
-        handle[start..end].to_vec()
+        handle[start..end][0]
+            .try_into()
+            .map_err(|e| NodeResult::InvalidPage { desc: e })
     }
 }
