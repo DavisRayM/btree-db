@@ -76,7 +76,11 @@ impl Node {
             _type: PageType::Leaf,
         };
 
-        obj._type = obj.read_page_type()?;
+        obj._type = obj.read_variable_data(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE)[0]
+            .try_into()
+            .map_err(|e| NodeResult::InvalidPage {
+                desc: format!("error while reading page type; {}", e),
+            })?;
         obj.keys = obj.num_cells();
 
         Ok(obj)
@@ -304,14 +308,9 @@ impl Node {
         Ok(())
     }
 
-    fn read_page_type(&self) -> Result<PageType> {
-        self.read_variable_data(PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE)[0]
-            .try_into()
-            .map_err(|e| NodeResult::InvalidPage {
-                desc: format!("error while reading page type; {}", e),
-            })
-    }
-
+    /// Reads u64 numbers from the attached page.
+    ///
+    /// The `u64` number bytes are read in big-endian format
     fn read_u64_data(&self, start: usize) -> u64 {
         let size = size_of::<usize>();
         let (start, end) = calculate_offsets!(start, size);
@@ -326,6 +325,8 @@ impl Node {
         )
     }
 
+    /// Reads variable length data from the attached page.
+    ///
     fn read_variable_data(&self, start: usize, size: usize) -> Vec<u8> {
         let (start, end) = calculate_offsets!(start, size);
         let page = Arc::clone(&self.page.0);
