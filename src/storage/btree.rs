@@ -185,7 +185,7 @@ impl Node {
     /// - Internal nodes: are checked against the maximum allowed number of keys. Ensuring the node
     /// only stores N+1 key; The +1 being the right-most pointer.
     /// - Leaf nodes: are checked to ensure the node can store one more key entry and have left
-    /// over space; If only a key can be stored without it's data or part of it's data it has
+    /// over space; If only one key can be stored without it's data or part of it's data it has
     /// filled up
     fn check_has_space(&self) -> Result<()> {
         match self._type {
@@ -194,7 +194,7 @@ impl Node {
                     - self.read_u64_data(LEAF_FREE_SPACE_START_OFFSET);
 
                 match free_space - LEAF_KEY_CELL_SIZE as u64 {
-                    0 => return Err(NodeResult::IsFull),
+                    v if v <= LEAF_KEY_CELL_SIZE as u64 => return Err(NodeResult::IsFull),
                     _ => (),
                 }
             }
