@@ -18,7 +18,6 @@ pub enum CursorState {
 ///
 /// This type provides the functionality to retrieve, add and remove data from a Table.
 pub struct Cursor<'a> {
-    // TODO: Support multi-threading
     table: &'a mut Table,
     cell_num: u64,
     node: Node,
