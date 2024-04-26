@@ -303,9 +303,10 @@ impl Node {
     }
 
     fn insert_leaf_cell<T: Cell>(&mut self, cell: T) -> Result<()> {
-        let free_space_start = self.read_u64_data(LEAF_FREE_SPACE_START_OFFSET);
+        let mut free_space_start = self.read_u64_data(LEAF_FREE_SPACE_START_OFFSET);
         let mut free_space_end = self.read_u64_data(LEAF_FREE_SPACE_END_OFFSET);
 
+        let key_pos = self.calculate_cell_position(self.find_cell_num(cell.get_key()));
         let mut content = cell.get_content();
         let mut content_bytes = Vec::new();
         content_bytes.append(&mut content.len().to_be_bytes().to_vec());
@@ -314,7 +315,7 @@ impl Node {
         free_space_end -= content_bytes.len() as u64;
 
         if free_space_start + LEAF_KEY_CELL_SIZE as u64 >= free_space_end {
-            // TODO: Need to figure out how to handle overflows
+            // TODO: Need to figure out how to handle overflow pages
             return Err(NodeResult::HasOverflow(Vec::with_capacity(0)));
         }
 
@@ -326,12 +327,15 @@ impl Node {
 
         let mut key_bytes = cell.get_key_bytes();
         key_bytes.append(&mut free_space_end.to_be_bytes().to_vec());
-        let key_end = free_space_start + LEAF_KEY_CELL_SIZE as u64;
+        free_space_start += LEAF_KEY_CELL_SIZE as u64;
 
-        self.write_all_bytes(key_bytes, free_space_start as usize);
+        self.write_all_bytes(key_bytes, key_pos as usize);
         self.write_all_bytes(content_bytes, free_space_end as usize);
 
-        self.write_all_bytes(key_end.to_be_bytes().to_vec(), LEAF_FREE_SPACE_START_OFFSET);
+        self.write_all_bytes(
+            free_space_start.to_be_bytes().to_vec(),
+            LEAF_FREE_SPACE_START_OFFSET,
+        );
         self.write_all_bytes(
             free_space_end.to_be_bytes().to_vec(),
             LEAF_FREE_SPACE_END_OFFSET,
