@@ -2,7 +2,7 @@ use log::debug;
 
 use super::{
     btree::{Node, NodeResult},
-    cell::{Cell, InternalCell, LeafCell},
+    cell::{InternalCell, LeafCell},
     page::PageType,
     table::Table,
 };
