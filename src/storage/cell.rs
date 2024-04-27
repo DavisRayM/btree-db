@@ -29,7 +29,7 @@ pub trait Cell {
 
     fn get_content(&self) -> Vec<u8>;
 
-    fn set_content(&mut self, c: Vec<u8>);
+    fn from_bytes(&mut self, c: Vec<u8>);
 }
 
 impl InternalCell {
@@ -90,7 +90,7 @@ impl Cell for InternalCell {
         out.to_vec()
     }
 
-    fn set_content(&mut self, c: Vec<u8>) {
+    fn from_bytes(&mut self, c: Vec<u8>) {
         self.key = u64::from_be_bytes(
             c[0..INTERNAL_KEY_SIZE]
                 .try_into()
@@ -127,7 +127,7 @@ impl Cell for LeafCell {
         self.content.clone()
     }
 
-    fn set_content(&mut self, c: Vec<u8>) {
+    fn from_bytes(&mut self, c: Vec<u8>) {
         self.overflow = false;
         self.identifier = u64::from_be_bytes(c[0..LEAF_KEY_IDENTIFIER_SIZE].try_into().unwrap());
         self.content = c[LEAF_KEY_IDENTIFIER_SIZE..].to_vec();
