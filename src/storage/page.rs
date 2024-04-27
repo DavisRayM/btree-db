@@ -73,7 +73,7 @@ impl TryFrom<u8> for PageType {
         match value {
             0xA => Ok(PageType::Leaf),
             0xB => Ok(PageType::Internal),
-            _ => Err("unknown page type".to_string()),
+            v => Err(format!("unknown type: {:#x}", v)),
         }
     }
 }
@@ -82,6 +82,7 @@ impl TryFrom<u8> for PageType {
 pub struct PageBuilder {
     inner: [u8; PAGE_SIZE],
     _type: PageType,
+    content_set: bool,
 }
 
 impl PageBuilder {
@@ -97,6 +98,7 @@ impl PageBuilder {
             Err("content is not a valid page".to_string())
         } else {
             self.inner = c;
+            self.content_set = true;
             Ok(self)
         }
     }
@@ -120,7 +122,7 @@ impl PageBuilder {
         let (start, end) = calculate_offsets!(PAGE_MAGIC_OFFSET, PAGE_MAGIC_SIZE);
         self.inner[start..end].clone_from_slice(PAGE_MAGIC.to_be_bytes().as_ref());
 
-        if self._type == PageType::Leaf {
+        if self._type == PageType::Leaf && !self.content_set {
             let (start, end) =
                 calculate_offsets!(LEAF_FREE_SPACE_START_OFFSET, LEAF_FREE_SPACE_START_SIZE);
             self.inner[start..end].clone_from_slice(&LEAF_HEADER_SIZE.to_be_bytes());
@@ -150,6 +152,7 @@ impl Default for PageBuilder {
         let builder = PageBuilder {
             inner: [0x0; PAGE_SIZE],
             _type: PageType::Leaf,
+            content_set: false,
         }
         .kind(&PageType::Internal)
         .is_root(false);
