@@ -71,6 +71,34 @@ fn persists_data() -> Result<()> {
 }
 
 #[test]
+fn data_in_ascending_order() -> Result<()> {
+    let file = assert_fs::NamedTempFile::new("temp.db")?;
+    file.touch()?;
+    let mut cmd = test_cmd(&file)?;
+
+    for i in (0..3).rev() {
+        cmd.stdin
+            .as_mut()
+            .unwrap()
+            .write_all(format!("insert {i} {i}data\n").as_bytes())?;
+    }
+    cmd.stdin.as_mut().unwrap().write_all(b".exit\n")?;
+    cmd.wait_with_output()?.assert().success();
+
+    let mut cmd = test_cmd(&file)?;
+    cmd.stdin.as_mut().unwrap().write_all(b"select\n")?;
+    cmd.stdin.as_mut().unwrap().write_all(b".exit\n")?;
+
+    cmd.wait_with_output()?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0data\n1data\n2data"));
+
+    file.close()?;
+    Ok(())
+}
+
+#[test]
 fn duplicate_keys_rejected() -> Result<()> {
     let file = assert_fs::NamedTempFile::new("temp.db")?;
     file.touch()?;
