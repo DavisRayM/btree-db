@@ -2,7 +2,8 @@ use log::debug;
 
 use super::{
     btree::{Node, NodeResult},
-    cell::{InternalCell, LeafCell},
+    cell::{Cell, InternalCell, LeafCell},
+    layout::LEAF_KEY_POINTER_SIZE,
     page::PageType,
     table::Table,
 };
@@ -45,29 +46,20 @@ impl<'a> Cursor<'a> {
     /// Inserts a new record into the table
     ///
     pub fn insert(&mut self, identifier: u64, content: Vec<u8>) -> Result<(), String> {
-        let result = match self.node.node_type() {
+        match self.node.node_type() {
             PageType::Leaf => {
                 let cell = LeafCell::new(identifier, content.clone(), false);
-                self.node.insert_cell(cell)
+                let result = self.node.insert_cell(cell);
+                match result {
+                    Ok(_) => Ok(()),
+                    Err(NodeResult::IsFull) => self.split(identifier, content),
+                    Err(e) => Err(e.to_string()),
+                }
             }
             PageType::Internal => {
-                let cell = InternalCell::new(
-                    identifier,
-                    content[..8]
-                        .try_into()
-                        .map_err(|e| format!("invalid internal key pointer content: {}", e))?,
-                );
-                self.node.insert_cell(cell)
-            }
-        };
-
-        match result {
-            Ok(_) => Ok(()),
-            Err(NodeResult::IsFull(pivot)) => {
-                self.split(pivot)?;
+                self.find_node(identifier);
                 self.insert(identifier, content)
             }
-            Err(e) => Err(e.to_string()),
         }
     }
 
@@ -75,6 +67,10 @@ impl<'a> Cursor<'a> {
     ///
     pub fn select(&mut self) -> Vec<String> {
         let mut data = Vec::new();
+        while self.node.node_type() != PageType::Leaf {
+            debug!("searching for leaf node");
+            self.find_node(0);
+        }
 
         while self._state != CursorState::AtEnd {
             if self._state != CursorState::InProgress {
@@ -91,9 +87,8 @@ impl<'a> Cursor<'a> {
     fn advance(&mut self) {
         self.cell_num += 1;
         if self.node.num_cells() <= self.cell_num {
+            debug!("cursor at the end; sibling {:?}", self.node.next_sibling());
             if let Some(sibling) = self.node.next_sibling() {
-                debug!("cursor moving to new sibling node: {}", sibling);
-
                 self.node = Node::load(
                     self.table
                         .get_page(sibling)
@@ -107,36 +102,52 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn split(&mut self, pivot: u64) -> Result<(), String> {
-        let mut new_node = Node::load(self.table.create_page(self.node.node_type()))
-            .map_err(|e| format!("failed to split node: {}", e.to_string()))?;
-        let old_max = self.node.node_high_key();
-        let num_cells = self.node.num_cells();
+    fn find_node(&mut self, identifier: u64) {
+        let pos = self.node.find_cell_num(identifier);
+        let key_data = self.node.read_cell_bytes(pos);
+        let mut cell = InternalCell::default();
+        cell.from_bytes(key_data);
+        debug!("loading found page: {}", cell.pointer());
+        self.node = Node::load(self.table.get_page(cell.pointer()).unwrap()).unwrap();
+    }
 
-        let right_split = (num_cells + 1) / 2;
-        let left_split = (num_cells + 1) - right_split;
+    fn split(&mut self, identifier: u64, content: Vec<u8>) -> Result<(), String> {
+        let (new_page, page) = self.table.create_page(&self.node.node_type());
+        let mut new_node =
+            Node::load(page).map_err(|e| format!("failed to split node: {}", e.to_string()))?;
+        let old_max = self.node.node_high_key();
 
         match self.node.node_type() {
             PageType::Leaf => {
-                let old_sibling = self.node.next_sibling();
-                let mut destination_node: &mut Node;
-
-                for i in (0..num_cells).rev() {
-                    if i >= left_split {
-                        destination_node = &mut new_node;
-                    } else {
-                        destination_node = &mut self.node;
-                    }
-
-                    let index_in_node = i % left_split;
-
-                    if i > pivot {}
-                }
+                let cell = LeafCell::new(identifier, content.clone(), false);
+                self.node
+                    .split(&mut new_node, cell)
+                    .map_err(|e| format!("failed to split leaf node; {}", e))?;
             }
             PageType::Internal => {
-                todo!()
+                let cell = InternalCell::new(
+                    identifier,
+                    content[..LEAF_KEY_POINTER_SIZE].try_into().unwrap(),
+                );
+                self.node
+                    .split(&mut new_node, cell)
+                    .map_err(|e| format!("failed to split internal node; {}", e))?;
             }
         };
+
+        self.node.set_next_sibling(new_page);
+        if self.node.is_root() {
+            let (old_num, _) = self.table.create_new_root();
+            self.node = Node::load(self.table.root_page()).unwrap();
+            self.node
+                .insert_cell(InternalCell::new(1, old_num.to_be_bytes()))
+                .expect("failed to insert key into new internal node");
+            self.node
+                .insert_cell(InternalCell::new(old_max, new_page.to_be_bytes()))
+                .expect("failed to insert right most key in internal node");
+        } else {
+            unimplemented!()
+        }
 
         Ok(())
     }
