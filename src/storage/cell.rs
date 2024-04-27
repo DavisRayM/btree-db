@@ -128,7 +128,9 @@ impl Cell for LeafCell {
     }
 
     fn set_content(&mut self, c: Vec<u8>) {
-        self.content = c;
+        self.overflow = false;
+        self.identifier = u64::from_be_bytes(c[0..LEAF_KEY_IDENTIFIER_SIZE].try_into().unwrap());
+        self.content = c[LEAF_KEY_IDENTIFIER_SIZE..].to_vec();
     }
 }
 
