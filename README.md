@@ -1,3 +1,5 @@
+![Github Workflow](https://github.com/DavisRayM/btree-db/actions/workflows/general.yml/badge.svg)
+![Gitlab Workflow](https://gitlab.com/DavisRayM/btree-db/badges/main/pipeline.svg)
 # BTree DB
 
 This repository contains a database implementation built on the B+-Tree datastructure.
