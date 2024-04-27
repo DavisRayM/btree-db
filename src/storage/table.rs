@@ -24,8 +24,12 @@ impl Table {
         }
     }
 
-    pub fn create_page(&mut self, kind: &PageType) -> CachedPage {
+    pub fn create_page(&mut self, kind: &PageType) -> (u64, CachedPage) {
         self.pager.new_page(kind.clone(), false)
+    }
+
+    pub fn create_new_root(&mut self) -> (u64, CachedPage) {
+        self.pager.new_root()
     }
 
     /// Retrieves a particular page in the table

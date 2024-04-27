@@ -8,7 +8,10 @@ use std::{
 
 use crate::storage::{layout::PAGE_SIZE, page::PageBuilder};
 
-use super::page::{CachedPage, Page, PageType};
+use super::{
+    layout::{PAGE_TYPE_OFFSET, PAGE_TYPE_SIZE},
+    page::{CachedPage, Page, PageType},
+};
 
 pub struct Pager {
     num_pages: u64,
@@ -39,7 +42,8 @@ impl Pager {
         };
 
         if num_pages == 0 {
-            obj.new_page(PageType::Leaf, true);
+            let (root_page, _) = obj.new_page(PageType::Leaf, true);
+            obj.root_page = root_page;
         }
 
         obj
@@ -78,12 +82,41 @@ impl Pager {
         self.root_page
     }
 
-    pub fn new_page(&mut self, kind: PageType, is_root: bool) -> CachedPage {
+    pub fn new_page(&mut self, kind: PageType, is_root: bool) -> (u64, CachedPage) {
         let builder = PageBuilder::default().kind(&kind).is_root(is_root);
 
         let num = self.num_pages;
         self.num_pages += 1;
-        self.cache_page(num, builder.build())
+        (num, self.cache_page(num, builder.build()))
+    }
+
+    /// Creates a new root internal node and returns the old roots new page number
+    ///
+    /// NOTE: The caller is responsible for recreating any links required in order to have a valid
+    /// B+ Tree
+    pub fn new_root(&mut self) -> (u64, CachedPage) {
+        let root_arc = self.get_page(self.root_page).unwrap().0;
+        let mut root_handle = root_arc.write().unwrap();
+        let kind: PageType = root_handle[PAGE_TYPE_OFFSET..PAGE_TYPE_OFFSET + PAGE_TYPE_SIZE][0]
+            .try_into()
+            .unwrap();
+
+        let new_root = PageBuilder::default()
+            .is_root(true)
+            .kind(&PageType::Internal)
+            .build();
+
+        let num = self.num_pages;
+        self.num_pages += 1;
+        let left_node = PageBuilder::default()
+            .content(root_handle[..].try_into().unwrap())
+            .unwrap()
+            .is_root(false)
+            .kind(&kind)
+            .build();
+
+        root_handle[..].clone_from_slice(&new_root[..]);
+        (num, self.cache_page(num, left_node))
     }
 
     pub fn get_page(&mut self, num: u64) -> Option<CachedPage> {
