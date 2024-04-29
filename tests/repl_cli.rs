@@ -12,6 +12,7 @@ fn test_cmd(temp_file: &NamedTempFile) -> Result<std::process::Child> {
     let cmd = Command::cargo_bin("btree-db")?
         .arg("-f")
         .arg(temp_file.path())
+        .env("RUST_LOG", "debug")
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
@@ -143,7 +144,13 @@ fn multi_level_trees_support() -> Result<()> {
     cmd.stdin.as_mut().unwrap().write_all(b".exit\n")?;
 
     let output = cmd.wait_with_output()?;
-    output.clone().assert().success();
+    output
+        .clone()
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "split node was root; creating new root",
+        ));
 
     for i in 1..140 {
         output
@@ -151,6 +158,96 @@ fn multi_level_trees_support() -> Result<()> {
             .assert()
             .stdout(predicate::str::contains(format!("{i}name")));
     }
+
+    let expected_format = (1..140)
+        .into_iter()
+        .map(|i| format!("{i}name"))
+        .collect::<Vec<String>>();
+    output
+        .clone()
+        .assert()
+        .stdout(predicate::str::contains(expected_format.join("\n")));
+
+    file.close()?;
+    Ok(())
+}
+
+#[test]
+fn multi_level_trees_child_split() -> Result<()> {
+    let file = assert_fs::NamedTempFile::new("temp.db")?;
+    file.touch()?;
+    let mut cmd = test_cmd(&file)?;
+
+    for i in 1..280 {
+        cmd.stdin
+            .as_mut()
+            .unwrap()
+            .write_all(format!("insert {i} {i}name\n").as_bytes())?;
+    }
+
+    cmd.stdin.as_mut().unwrap().write_all(b"select\n")?;
+    cmd.stdin.as_mut().unwrap().write_all(b".exit\n")?;
+
+    let output = cmd.wait_with_output()?;
+    output
+        .clone()
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "split node was child; updating page pointers",
+        ));
+
+    for i in 1..280 {
+        output
+            .clone()
+            .assert()
+            .stdout(predicate::str::contains(format!("{i}name")));
+    }
+
+    file.close()?;
+    Ok(())
+}
+
+#[test]
+fn multi_level_trees_format() -> Result<()> {
+    let file = assert_fs::NamedTempFile::new("temp.db")?;
+    file.touch()?;
+    let mut cmd = test_cmd(&file)?;
+
+    for i in (1..280).rev() {
+        cmd.stdin
+            .as_mut()
+            .unwrap()
+            .write_all(format!("insert {i} {i}name\n").as_bytes())?;
+    }
+
+    cmd.stdin.as_mut().unwrap().write_all(b"select\n")?;
+    cmd.stdin.as_mut().unwrap().write_all(b".exit\n")?;
+
+    let output = cmd.wait_with_output()?;
+    output
+        .clone()
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "split node was child; updating page pointers",
+        ));
+
+    for i in 1..280 {
+        output
+            .clone()
+            .assert()
+            .stdout(predicate::str::contains(format!("{i}name")));
+    }
+
+    let expected_format = (1..280)
+        .into_iter()
+        .map(|i| format!("{i}name"))
+        .collect::<Vec<String>>();
+    output
+        .clone()
+        .assert()
+        .stdout(predicate::str::contains(expected_format.join("\n")));
 
     file.close()?;
     Ok(())
