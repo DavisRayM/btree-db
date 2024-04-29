@@ -9,8 +9,8 @@ use crate::{
         INTERNAL_CELL_SIZE, INTERNAL_KEY_POINTER_SIZE, INTERNAL_MAX_KEYS, INTERNAL_NUM_KEYS_OFFSET,
         INTERNAL_RIGHT_MOST_CHILD_OFFSET, INTERNAL_RIGHT_MOST_CHILD_SIZE,
         LEAF_FREE_SPACE_END_OFFSET, LEAF_FREE_SPACE_START_OFFSET, LEAF_KEY_INDENTIFIER_OFFSET,
-        LEAF_NEXT_SIBLING_POINTER_DEFAULT, LEAF_NEXT_SIBLING_POINTER_OFFSET,
-        LEAF_NEXT_SIBLING_POINTER_SIZE, LEAF_NUM_KEYS_OFFSET, PAGE_SIZE,
+        LEAF_NEXT_SIBLING_POINTER_DEFAULT, LEAF_NEXT_SIBLING_POINTER_OFFSET, LEAF_NUM_KEYS_OFFSET,
+        PAGE_SIZE,
     },
 };
 
@@ -121,7 +121,6 @@ impl Node {
                 }
 
                 if min_idx >= num_cells {
-                    // Cell number is actually -1
                     num_cells
                 } else {
                     min_idx
@@ -172,14 +171,11 @@ impl Node {
         }
     }
 
-    pub fn set_next_sibling(&self, pointer: u64) {
-        let (start, end) = calculate_offsets!(
+    pub fn set_next_sibling(&mut self, pointer: u64) {
+        self.write_all_bytes(
+            pointer.to_be_bytes().to_vec(),
             LEAF_NEXT_SIBLING_POINTER_OFFSET,
-            LEAF_NEXT_SIBLING_POINTER_SIZE
         );
-        let page = Arc::clone(&self.page.0);
-        let mut handle = page.write().expect("failed to retrieve write lock on page");
-        handle[start..end].clone_from_slice(&pointer.to_be_bytes());
     }
 
     pub fn num_cells(&self) -> u64 {
@@ -200,6 +196,13 @@ impl Node {
         match self._type {
             PageType::Internal => self.insert_internal_cell(cell),
             PageType::Leaf => self.insert_leaf_cell(cell),
+        }
+    }
+
+    pub fn right_child(&self) -> Option<u64> {
+        match self._type {
+            PageType::Leaf => None,
+            PageType::Internal => Some(self.read_u64_data(INTERNAL_RIGHT_MOST_CHILD_OFFSET, true)),
         }
     }
 
@@ -282,8 +285,12 @@ impl Node {
                 let free_space = self.read_u64_data(LEAF_FREE_SPACE_END_OFFSET, true)
                     - self.read_u64_data(LEAF_FREE_SPACE_START_OFFSET, true);
 
-                match free_space - LEAF_KEY_CELL_SIZE as u64 {
-                    v if v <= LEAF_KEY_CELL_SIZE as u64 => return Err(NodeResult::IsFull),
+                match free_space as u64 {
+                    v if v <= LEAF_KEY_CELL_SIZE as u64
+                        || v - LEAF_KEY_CELL_SIZE as u64 <= LEAF_KEY_CELL_SIZE as u64 =>
+                    {
+                        return Err(NodeResult::IsFull)
+                    }
                     _ => (),
                 }
             }
@@ -553,10 +560,6 @@ impl Node {
             right_split_count.to_be_bytes().to_vec(),
             LEAF_NUM_KEYS_OFFSET,
         );
-
-        if let Some(sibling) = self.next_sibling() {
-            node.set_next_sibling(sibling);
-        }
 
         Ok(())
     }
