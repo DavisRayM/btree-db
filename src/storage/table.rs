@@ -10,7 +10,7 @@ use std::path::PathBuf;
 /// tree as well as functionality to modify the structure of the tree
 pub struct Table {
     pager: Pager,
-    root: u64,
+    pub root: u64,
 }
 
 impl Table {
