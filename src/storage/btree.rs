@@ -40,6 +40,8 @@ pub enum NodeResult {
     InvalidPage { desc: String },
     /// Returned when trying to insert a duplicate key
     DuplicateKey,
+    /// Returned when the identifier given for an operation does not exist
+    KeyDoesNotExist,
 }
 
 impl Display for NodeResult {
@@ -49,6 +51,7 @@ impl Display for NodeResult {
             Self::HasOverflow(_) => "node has overflow".to_string(),
             Self::InvalidPage { desc } => format!("invalid page; {desc}"),
             Self::DuplicateKey => "duplicate key".to_string(),
+            Self::KeyDoesNotExist => "key does not exist".to_string(),
         };
 
         write!(f, "{}", msg)
@@ -254,8 +257,44 @@ impl Node {
         } else {
             self.flush_buffer();
             node.flush_buffer();
+
+            if let Some(sibling) = self.next_sibling() {
+                node.set_next_sibling(sibling);
+            }
+
             Ok(())
         }
+    }
+
+    pub fn update<T: Cell>(&mut self, identifier: u64, cell: T) -> Result<()> {
+        if !self.check_key_exists(identifier) {
+            return Err(NodeResult::KeyDoesNotExist);
+        }
+
+        let cell_num = self.find_cell_num(identifier);
+        match self._type {
+            PageType::Internal => {
+                let pointer_bytes = cell.get_content()[INTERNAL_KEY_POINTER_OFFSET
+                    ..INTERNAL_KEY_POINTER_SIZE + INTERNAL_KEY_POINTER_OFFSET]
+                    .to_vec();
+
+                if cell_num >= self.num_cells() {
+                    self.write_all_bytes(pointer_bytes, INTERNAL_RIGHT_MOST_CHILD_OFFSET);
+                } else {
+                    let pos = self.calculate_cell_position(cell_num) as usize;
+                    self.write_all_bytes(
+                        cell.get_key().to_be_bytes().to_vec(),
+                        pos + INTERNAL_KEY_OFFSET,
+                    );
+                    self.write_all_bytes(pointer_bytes, pos + INTERNAL_KEY_POINTER_OFFSET);
+                }
+            }
+            PageType::Leaf => {
+                todo!()
+            }
+        }
+
+        Ok(())
     }
 
     /// Retrieve the cell position for an Internal node key or Leaf node key
